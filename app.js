@@ -441,6 +441,10 @@ $("request-admin-access").addEventListener("click", async () => {
     $("request-access-status").textContent = "Sign in with a Google account that has an email address before requesting access.";
     return;
   }
+  if (!user.emailVerified) {
+    $("request-access-status").textContent = "Please verify this email address before requesting admin access. Signing in with Google is the easiest option.";
+    return;
+  }
   const button = $("request-admin-access");
   button.disabled = true;
   try {
