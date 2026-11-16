@@ -48,6 +48,10 @@ const collectionSchemas = {
       { key:"name", label:"Category name", type:"text", required:true },
       { key:"slug", label:"URL-friendly slug", type:"text", help:"Used for organisation and future page links." },
       { key:"description", label:"Short description", type:"textarea" },
+      { key:"pageHeadline", label:"Service page headline", type:"text" },
+      { key:"pageIntro", label:"Service page introduction", type:"textarea" },
+      { key:"pageDetails", label:"Detailed service information", type:"textarea" },
+      { key:"benefits", label:"Service benefits (one per line)", type:"lines" },
       { key:"icon", label:"Icon / symbol", type:"text", help:"An emoji or short symbol works well." },
       { key:"order", label:"Display order", type:"number", default:1 },
       { key:"enabled", label:"Visible on website", type:"checkbox", default:true }
@@ -97,6 +101,7 @@ const collectionSchemas = {
     fields: [
       { key:"title", label:"Project title", type:"text", required:true },
       { key:"categoryId", label:"Portfolio category", type:"selectPortfolioCategories" },
+      { key:"serviceCategoryId", label:"Show on service page", type:"selectCategories" },
       { key:"projectType", label:"Project type", type:"select", options:[["concept","Concept project"],["client","Client project"],["personal","Independent project"]], default:"concept", help:"Only select Client project when it is genuine and approved to display." },
       { key:"summary", label:"Short description", type:"textarea", required:true },
       { key:"description", label:"Project details", type:"textarea" },
@@ -127,6 +132,7 @@ const collectionSchemas = {
       { key:"question", label:"Question", type:"text", required:true },
       { key:"answer", label:"Answer", type:"textarea", required:true },
       { key:"categoryId", label:"FAQ category", type:"selectFaqCategories", required:true },
+      { key:"serviceCategoryId", label:"Show on service page", type:"selectCategories" },
       { key:"order", label:"Display order", type:"number", default:1 },
       { key:"status", label:"Publishing status", type:"select", options:[["draft","Draft"],["published","Published"],["archived","Archived"]], default:"published" },
       { key:"enabled", label:"Visible on website", type:"checkbox", default:true }
@@ -718,10 +724,17 @@ function renderSettings() {
 }
 function renderNotifications() {
   if (!can("notifications")) return permissionDenied("notifications");
-  const rows = Object.entries(notificationData || {}).sort((a,b) => (Number(b[1]?.createdAt)||0)-(Number(a[1]?.createdAt)||0));
-  const list = rows.map(([id,item]) => `<article class="content-row"><div class="row-icon">◉</div><div class="row-main"><strong>${esc(item.title || "Announcement")}</strong><p>${esc(item.message || "")}</p><div class="row-meta"><span class="badge badge-muted">${esc(item.target || "General")}</span><span class="badge ${item.enabled === false ? "badge-muted" : "badge-green"}">${item.enabled === false ? "Hidden" : "Published"}</span></div></div><div class="row-actions"><button class="small-action" data-action="toggle-notification" data-id="${esc(id)}">${item.enabled === false ? "Show" : "Hide"}</button><button class="small-action danger" data-action="delete-notification" data-id="${esc(id)}">Delete</button></div></article>`).join("");
-  return `<div class="welcome-row"><div><h2>Announcements</h2><p>Publish short notices to the existing website notification stream. Older notification records are preserved.</p></div></div><section class="settings-card"><h3>New announcement</h3><form id="notification-form"><div class="split-grid"><div class="field"><label>Title<input name="title" required maxlength="90"></label></div><div class="field"><label>Audience label<input name="target" value="General" maxlength="40"></label></div></div><div class="field"><label>Message<textarea name="message" required maxlength="500"></textarea></label></div><div class="split-grid"><div class="field"><label>Banner image URL (optional)<input name="bannerUrl" type="url" placeholder="https://..."></label></div><div class="field"><label>Destination URL (optional)<input name="destinationUrl" type="url" placeholder="https://..."></label></div></div><button class="button button-primary" type="submit">Publish announcement ↗</button></form></section><div class="panel-title"><h3>Previous announcements</h3><span>${rows.length} record(s)</span></div><div class="content-list">${list || emptyMarkup("No announcements yet.","Your first announcement will appear here after publishing.")}</div>`;
+  const categoryOptions = entries(siteContent.serviceCategories).filter(([,item])=>item && item.enabled!==false).map(([id,item])=>`<option value="${esc(id)}">${esc(item.name||id)}</option>`).join("");
+  const rows = Object.entries(notificationData || {}).sort((a,b)=>(Number(b[1]?.createdAt)||0)-(Number(a[1]?.createdAt)||0));
+  const list = rows.map(([id,item]) => {
+    const category = item.serviceCategoryId ? (siteContent.serviceCategories?.[item.serviceCategoryId]?.name || item.serviceCategoryId) : "All service pages";
+    const status = item.enabled===false ? "Hidden" : Number(item.startsAt)>Date.now() ? "Scheduled" : Number(item.endsAt)>0 && Number(item.endsAt)<Date.now() ? "Expired" : "Published";
+    const schedule = [item.startsAt ? "Starts "+new Date(Number(item.startsAt)).toLocaleString() : "",item.endsAt ? "Ends "+new Date(Number(item.endsAt)).toLocaleString() : ""].filter(Boolean).join(" · ");
+    return `<article class="content-row"><div class="row-icon">◉</div><div class="row-main"><strong>${esc(item.title||"Announcement")}</strong><p>${esc(item.message||"")}</p><div class="row-meta"><span class="badge badge-muted">${esc(category)}</span><span class="badge badge-muted">${esc(item.target||"General")}</span><span class="badge ${status==="Published"?"badge-green":"badge-muted"}">${status}</span></div>${schedule ? `<p class="row-meta">${esc(schedule)}</p>` : ""}</div><div class="row-actions"><button class="small-action" data-action="toggle-notification" data-id="${esc(id)}">${item.enabled===false?"Show":"Hide"}</button><button class="small-action danger" data-action="delete-notification" data-id="${esc(id)}">Delete</button></div></article>`;
+  }).join("");
+  return `<div class="welcome-row"><div><h2>Announcements</h2><p>Publish general announcements or target a specific service page. Each announcement can have its own start and end time.</p></div></div><section class="settings-card"><h3>New announcement</h3><form id="notification-form"><div class="split-grid"><div class="field"><label>Title<input name="title" required maxlength="90"></label></div><div class="field"><label>Audience label<input name="target" value="General" maxlength="40"></label></div></div><div class="field"><label>Message<textarea name="message" required maxlength="500"></textarea></label></div><div class="split-grid"><div class="field"><label>Show on service page<select name="serviceCategoryId"><option value="">All service pages</option>${categoryOptions}</select></label></div><div class="field"><label>Banner image URL (optional)<input name="bannerUrl" type="url" placeholder="https://..."></label></div></div><div class="split-grid"><div class="field"><label>Show from<input name="startsAtLocal" type="datetime-local"></label></div><div class="field"><label>Hide after<input name="endsAtLocal" type="datetime-local"></label></div></div><div class="field"><label>Destination URL (optional)<input name="destinationUrl" type="url" placeholder="https://..."></label></div><button class="button button-primary" type="submit">Save announcement ↗</button></form></section><div class="panel-title"><h3>Previous announcements</h3><span>${rows.length} record(s)</span></div><div class="content-list">${list || emptyMarkup("No announcements yet.","Your first announcement will appear here after publishing.")}</div>`;
 }
+
 const adminPermissionKeys = ["services","serviceCategories","portfolio","portfolioCategories","faqs","faqCategories","pages","sections","process","features","navigation","socialLinks","media","notifications","settings","publishing"];
 function openAdminEditor(uid) {
   if (adminProfile?.role !== "super" || uid === currentUser?.uid) throw new Error("Only a Super Admin can edit another administrator.");
@@ -1085,16 +1098,24 @@ async function saveSettings() {
   await writeAudit("update","settings","settings","Updated website settings");
   notify("Website settings saved.");
 }
-async function addNotification(form) {
+async async function addNotification(form) {
   if (!can("notifications")) return;
   const data = Object.fromEntries(new FormData(form).entries());
   if (!data.title?.trim() || !data.message?.trim()) throw new Error("A title and message are required.");
+  if (data.serviceCategoryId && !siteContent.serviceCategories?.[data.serviceCategoryId]) throw new Error("Choose a valid service category.");
   if (data.bannerUrl) ensureWebUrl(data.bannerUrl,"Banner image URL",false);
   if (data.destinationUrl) ensureWebUrl(data.destinationUrl,"Announcement destination URL",false);
-  const created = await push(ref(database,"notifications"),{...data,title:data.title.trim(),message:data.message.trim(),createdAt:Date.now(),enabled:true});
-  await writeAudit("create","notifications",created.key,"Created announcement");
-  form.reset(); notify("Announcement published.");
+  const startsAt = data.startsAtLocal ? new Date(data.startsAtLocal).getTime() : 0;
+  const endsAt = data.endsAtLocal ? new Date(data.endsAtLocal).getTime() : 0;
+  if (data.startsAtLocal && !Number.isFinite(startsAt)) throw new Error("Enter a valid start time.");
+  if (data.endsAtLocal && !Number.isFinite(endsAt)) throw new Error("Enter a valid end time.");
+  if (startsAt && endsAt && endsAt <= startsAt) throw new Error("The end time must be later than the start time.");
+  const payload = {title:data.title.trim(),message:data.message.trim(),target:data.target?.trim()||"General",serviceCategoryId:data.serviceCategoryId||"",bannerUrl:data.bannerUrl||"",destinationUrl:data.destinationUrl||"",startsAt,endsAt,createdAt:Date.now(),enabled:true};
+  const created = await push(ref(database,"notifications"),payload);
+  await writeAudit("create","notifications",created.key,"Created scheduled announcement");
+  form.reset(); notify("Announcement saved.");
 }
+
 async function toggleNotification(id) {
   const current = notificationData[id]?.enabled !== false;
   await update(ref(database,`notifications/${id}`),{enabled:!current});
