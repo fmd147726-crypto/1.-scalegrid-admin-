@@ -18,6 +18,12 @@ test("admin access is UID-based and supports multiple Super Admins", () => {
   assert.match(app, /data\.role === "super" \? "super" : "normal"/);
 });
 
+test("multiple Super Admins can be managed without removing the last one", () => {
+  assert.match(app, /Manage Super Admin/);
+  assert.match(app, /last remaining Super Admin/);
+  assert.match(app, /admins\\/\\$\\{activeUid\\}/);
+});
+
 test("published website content is public but publishing is restricted", () => {
   assert.equal(rules.publicContent[".read"], true);
   assert.match(rules.publicContent[".write"], /adminUids/);
