@@ -12,6 +12,7 @@ A static-hosted CMS dashboard for the existing Firebase project `scalegrid-1c506
 - Review-and-publish workflow that filters drafts, archived, hidden, disabled-category, unpublished-page, and unpublished-section content.
 - Pre-edit/pre-delete snapshots for collection records and a per-record History/Restore action.
 - Client-generated activity log and Super Admin content backup export / selected-collection merge restore.
+- Multi-Super-Admin role management with live profile refresh and last-Super-Admin protection.
 - Firebase Realtime Database security rules, CLI deployment configuration, and a non-destructive starter-content installer in the Admin Panel.
 
 ## Start
