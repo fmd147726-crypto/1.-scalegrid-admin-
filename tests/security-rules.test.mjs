@@ -15,7 +15,18 @@ test("admin access is UID-based and supports multiple Super Admins", () => {
   assert.match(rules.adminUids.$uid[".write"], /role/);
   assert.match(rules.admins.$uid[".write"], /role/);
   assert.doesNotMatch(rules.adminUids.$uid[".write"], /fmd147726|fmd541616/);
-  assert.match(app, /data\.role === "super" \? "super" : "normal"/);
+  assert.match(app, /function sendAdminInvitation\(form\)/);
+  assert.match(app, /function acceptAdminInvitation\(context\)/);
+  assert.match(app, /function deleteAdminInvitation\(key\)/);
+  assert.match(app, /adminInvitations/);
+  assert.doesNotMatch(app, /adminRequests/);
+});
+
+test("email invitations require verified email claims and Super Admin approval", () => {
+  assert.match(rules.adminInvitations.$emailKey[".read"], /email_verified/);
+  assert.match(rules.adminInvitations.$emailKey[".write"], /role.*super/);
+  assert.match(rules.adminInvitations.$emailKey[".write"], /claimedUid/);
+  assert.match(app, /No UID is needed/);
 });
 
 test("multiple Super Admins can be managed without removing the last one", () => {
