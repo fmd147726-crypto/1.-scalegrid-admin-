@@ -21,7 +21,7 @@ test("admin access is UID-based and supports multiple Super Admins", () => {
 test("multiple Super Admins can be managed without removing the last one", () => {
   assert.match(app, /Manage Super Admin/);
   assert.match(app, /last remaining Super Admin/);
-  assert.match(app, /admins\\/\\$\\{activeUid\\}/);
+  assert.ok(app.includes("admins/${activeUid}"));
 });
 
 test("published website content is public but publishing is restricted", () => {
