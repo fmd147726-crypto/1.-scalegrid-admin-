@@ -113,6 +113,13 @@
           }
         }
       }
+    },
+    "adminRequests": {
+      ".read": "auth != null && root.child('adminUids').child(auth.uid).val() === true && root.child('admins').child(auth.uid).child('role').val() === 'super'",
+      "$uid": {
+        ".write": "auth != null && ((root.child('adminUids').child(auth.uid).val() === true && root.child('admins').child(auth.uid).child('role').val() === 'super') || (auth.uid === $uid && !data.exists() && newData.child('email').val() === auth.token.email && newData.child('status').val() === 'pending'))",
+        ".validate": "newData.hasChildren(['email','status','requestedAt']) && newData.child('email').isString() && newData.child('status').val() === 'pending' && newData.child('requestedAt').isNumber()"
+      }
     }
   }
 }
