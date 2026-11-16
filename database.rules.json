@@ -117,7 +117,7 @@
     "adminRequests": {
       "$uid": {
         ".read": "auth != null && (auth.uid === $uid || (root.child('adminUids').child(auth.uid).val() === true && root.child('admins').child(auth.uid).child('role').val() === 'super'))",
-        ".write": "auth != null && ((root.child('adminUids').child(auth.uid).val() === true && root.child('admins').child(auth.uid).child('role').val() === 'super') || (auth.uid === $uid && !data.exists() && newData.child('email').val() === auth.token.email && newData.child('status').val() === 'pending'))",
+        ".write": "auth != null && ((root.child('adminUids').child(auth.uid).val() === true && root.child('admins').child(auth.uid).child('role').val() === 'super') || (auth.uid === $uid && auth.token.email_verified === true && !data.exists() && newData.child('email').val() === auth.token.email && newData.child('status').val() === 'pending'))",
         ".validate": "newData.hasChildren(['email','status','requestedAt']) && newData.child('email').isString() && newData.child('status').val() === 'pending' && newData.child('requestedAt').isNumber()"
       }
     }
