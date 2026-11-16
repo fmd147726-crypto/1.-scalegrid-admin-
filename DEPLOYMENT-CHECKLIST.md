@@ -1,7 +1,7 @@
 # ScaleGrid launch checklist
 
 ## Before publishing
-- [ ] Confirm the GitHub repository names and expected Pages URLs.
+- [ ] Confirm the User Site repository `scalegrid-user-` and Admin Panel repository `1.-scalegrid-admin-`, and their Pages URLs.
 - [ ] Confirm the Firebase project shown in `firebase-config.js` is the intended existing project.
 - [ ] Export/backup the existing Realtime Database data.
 - [ ] Enable the intended Firebase Authentication providers.
