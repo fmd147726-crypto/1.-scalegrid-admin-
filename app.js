@@ -512,10 +512,10 @@ function renderRoute() {
 
 function renderBackups() {
   if (adminProfile?.role !== "super") return permissionDenied("super admin");
-  return `<div class="welcome-row"><div><h2>Protect your website content.</h2><p>Export a timestamped JSON backup or merge selected collections from a previous backup.</p></div><button class="button button-primary" data-action="download-backup">Export backup ↗</button></div>
-  <section class="settings-card"><h3>Restore from backup</h3><p class="view-subtitle">Restore merges selected content records into the current working data. It never touches administrator identities, UID allowlists, public publication, or legacy paths.</p>
-  <form id="backup-restore-form"><div class="field"><label>Backup JSON file<input type="file" name="backupFile" accept=".json,application/json" required></label></div><div class="field"><span class="field-label">Collections to restore</span><div class="permission-grid">${["settings","navigation","serviceCategories","services","portfolioCategories","portfolio","faqCategories","faqs","pages","process","features","socialLinks","media"].map(k=>`<label class="field-check"><input type="checkbox" name="restore_${k}" checked> ${esc(k)}</label>`).join("")}</div></div><button class="button button-secondary" type="submit">Validate & merge selected content</button></form></section>
-  <div class="helper-box"><strong>Important:</strong> restore is additive/update-only. It does not delete records that are absent from the backup. Review the export before restoring it.</div>`;
+  return `<div class="welcome-row"><div><h2>Protect your website content.</h2><p>Export a timestamped JSON backup of your pages, services, FAQs, portfolio and announcements. You can share the file with ChatGPT to prepare organized updates, then import the approved changes.</p></div><button class="button button-primary" data-action="download-backup">Export backup ↗</button></div>
+  <section class="settings-card"><h3>Restore from backup</h3><p class="view-subtitle">Restore merges selected content records into the current working data. Announcements are restored to their separate notification stream. Administrator identities, UID allowlists, public publication and legacy paths are never changed.</p>
+  <form id="backup-restore-form"><div class="field"><label>Backup JSON file<input type="file" name="backupFile" accept=".json,application/json" required></label></div><div class="field"><span class="field-label">Collections to restore</span><div class="permission-grid">${["settings","navigation","serviceCategories","services","portfolioCategories","portfolio","faqCategories","faqs","pages","process","features","socialLinks","media","notifications"].map(k=>`<label class="field-check"><input type="checkbox" name="restore_${k}" checked> ${esc(k)}</label>`).join("")}</div></div><button class="button button-secondary" type="submit">Validate & merge selected content</button></form></section>
+  <div class="helper-box"><strong>Important:</strong> restore is additive/update-only. It does not delete records that are absent from the backup. Select only the collections you want to update, and publish website content separately after reviewing it.</div>`;
 }
 function renderActivity() {
   if (adminProfile?.role !== "super") return permissionDenied("super admin");
@@ -533,7 +533,8 @@ function downloadBackup() {
   if (adminProfile?.role !== "super") throw new Error("Only a super admin can export backups.");
   const collections=["settings","navigation","serviceCategories","services","portfolioCategories","portfolio","faqCategories","faqs","pages","process","features","socialLinks","media"];
   const content=Object.fromEntries(collections.map(key=>[key,siteContent[key] || {}]));
-  const payload={format:"scalegrid-content-backup",schemaVersion:1,projectId:firebaseConfig.projectId,createdAt:new Date().toISOString(),createdBy:currentUser?.uid || null,content};
+  content.notifications = notificationData || {};
+  const payload={format:"scalegrid-content-backup",schemaVersion:2,projectId:firebaseConfig.projectId,createdAt:new Date().toISOString(),createdBy:currentUser?.uid || null,content};
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
   const url=URL.createObjectURL(blob);
   const a=document.createElement("a"); a.href=url; a.download=`scalegrid-content-backup-${new Date().toISOString().replace(/[:.]/g,"-")}.json`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
@@ -546,13 +547,14 @@ async function restoreBackup(form) {
   if (!file) throw new Error("Choose a backup JSON file.");
   if (file.size > 10*1024*1024) throw new Error("Backup file exceeds the 10 MB limit.");
   const parsed=JSON.parse(await file.text());
-  if (parsed?.format!=="scalegrid-content-backup" || parsed?.schemaVersion!==1 || parsed?.projectId!==firebaseConfig.projectId || !parsed.content || typeof parsed.content!=="object") throw new Error("This is not a valid ScaleGrid backup for the connected Firebase project.");
-  const keys=["settings","navigation","serviceCategories","services","portfolioCategories","portfolio","faqCategories","faqs","pages","process","features","socialLinks","media"];
+  if (parsed?.format!=="scalegrid-content-backup" || ![1,2].includes(parsed?.schemaVersion) || parsed?.projectId!==firebaseConfig.projectId || !parsed.content || typeof parsed.content!=="object") throw new Error("This is not a valid ScaleGrid backup for the connected Firebase project.");
+  const keys=["settings","navigation","serviceCategories","services","portfolioCategories","portfolio","faqCategories","faqs","pages","process","features","socialLinks","media","notifications"];
   const selected=keys.filter(key=>form.elements[`restore_${key}`]?.checked && parsed.content[key] && typeof parsed.content[key]==="object");
   if (!selected.length) throw new Error("Select at least one valid collection to restore.");
   if (!confirm(`Merge ${selected.length} selected content collection(s) into the current website data? Existing records absent from the backup will remain unchanged.`)) return;
   for (const key of selected) {
     if (key === "pages") await update(ref(database),flattenPatch("siteContent/pages",parsed.content[key]));
+    else if (key === "notifications") await update(ref(database,"notifications"),parsed.content[key]);
     else await update(ref(database,`siteContent/${key}`),parsed.content[key]);
   }
   await writeAudit("backup-restore","backup",selected.join(","),`Merged backup collections: ${selected.join(", ")}`);
