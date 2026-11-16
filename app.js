@@ -206,7 +206,7 @@ let adminProfile = null;
 let siteContent = {};
 let notificationData = {};
 let adminsData = {};
-let adminRequestsData = {};
+let adminInvitationsData = {};
 let route = "dashboard";
 let selectedPageId = "home";
 let editorContext = null;
@@ -268,22 +268,10 @@ function showPending(user) {
   $("pending-screen").hidden = false;
   $("app-shell").hidden = true;
   $("pending-email").textContent = user.email || "Email not provided";
-  $("pending-uid").textContent = user.uid;
-  $("request-access-status").textContent = "You can request access. A Super Admin must approve it before you can enter the dashboard.";
-  $("request-admin-access").disabled = false;
-  get(ref(database, `adminRequests/${user.uid}`)).then((snapshot) => {
-    if (auth.currentUser?.uid !== user.uid) return;
-    if (snapshot.exists()) {
-      $("request-access-status").textContent = "Your access request has been submitted and is waiting for Super Admin approval.";
-      $("request-admin-access").disabled = true;
-      $("request-admin-access").textContent = "Request submitted";
-    } else {
-      $("request-admin-access").textContent = "Request Admin Access";
-    }
-  }).catch((error) => {
-    console.warn("Could not check admin request status:", error);
-    $("request-access-status").textContent = "Could not check request status. Please try again.";
-  });
+  $("request-access-status").textContent = "If a Super Admin has invited this email, select Check Invitation. Access is granted only after the Super Admin accepts it.";
+  $("check-admin-invitation").disabled = false;
+  $("check-admin-invitation").textContent = "Check Invitation";
+  claimAdminInvitation(user).catch(error => { $("request-access-status").textContent = error.message || "Could not check invitation."; });
 }
 function showApp() {
   $("auth-screen").hidden = true;
@@ -421,10 +409,10 @@ function subscribeData() {
       adminsData = snapshot.exists() ? snapshot.val() : {};
       if (route === "adminAccess") renderRoute();
     }, (error) => console.warn("Admin list unavailable:", error)));
-    dataUnsubscribers.push(onValue(ref(database, "adminRequests"), (snapshot) => {
-      adminRequestsData = snapshot.exists() ? snapshot.val() : {};
+    dataUnsubscribers.push(onValue(ref(database, "adminInvitations"), (snapshot) => {
+      adminInvitationsData = snapshot.exists() ? snapshot.val() : {};
       if (route === "adminAccess") renderRoute();
-    }, (error) => console.warn("Admin requests unavailable:", error)));
+    }, (error) => console.warn("Admin invitations unavailable:", error)));
   }
   dataUnsubscribers.push(onValue(ref(database, ".info/connected"), (snapshot) => { connected = snapshot.val() === true; setConnectionStatus(connected ? "online" : "error"); }));
 }
@@ -435,40 +423,24 @@ $("google-login").addEventListener("click", async () => {
   try { await signInWithPopup(auth, googleProvider); }
   catch (error) { $("auth-message").textContent = authError(error); }
 });
-$("request-admin-access").addEventListener("click", async () => {
-  const user = auth.currentUser;
-  if (!user?.uid || !user.email) {
-    $("request-access-status").textContent = "Sign in with a Google account that has an email address before requesting access.";
-    return;
-  }
-  if (!user.emailVerified) {
-    $("request-access-status").textContent = "Please verify this email address before requesting admin access. Signing in with Google is the easiest option.";
-    return;
-  }
-  const button = $("request-admin-access");
-  button.disabled = true;
-  try {
-    const requestRef = ref(database, `adminRequests/${user.uid}`);
-    const existing = await get(requestRef);
-    if (existing.exists()) {
-      $("request-access-status").textContent = "Your request is already waiting for Super Admin approval.";
-      button.textContent = "Request submitted";
-      return;
-    }
-    await set(requestRef, {email:user.email.toLowerCase(), status:"pending", requestedAt:Date.now()});
-    $("request-access-status").textContent = "Request submitted. A Super Admin will review your email and choose your permissions.";
-    button.textContent = "Request submitted";
-  } catch (error) {
-    console.error("Admin access request failed:", error);
-    $("request-access-status").textContent = error.message || "Could not submit your request. Please try again.";
-    button.disabled = false;
-  }
-});
-$("email-login-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  $("auth-message").textContent = "";
-  try { await signInWithEmailAndPassword(auth, $("login-email").value.trim(), $("login-password").value); }
-  catch (error) { $("auth-message").textContent = authError(error); }
+async function claimAdminInvitation(user) {
+  if (!user?.email || !user.emailVerified) { $("request-access-status").textContent = "Sign in using the same verified email address invited by the Super Admin."; return; }
+  const key = btoa(user.email.trim().toLowerCase()).replace(/\\+/g,"-").replace(/\\//g,"_").replace(/=+$/g,"");
+  const invitationRef = ref(database,`adminInvitations/${key}`);
+  const snapshot = await get(invitationRef);
+  if (auth.currentUser?.uid !== user.uid) return;
+  if (!snapshot.exists()) { $("request-access-status").textContent = "No invitation found for this email. Ask your Super Admin to add it in Admin Access."; return; }
+  const invitation = snapshot.val() || {};
+  if (String(invitation.email || "").toLowerCase() !== user.email.toLowerCase()) throw new Error("The invitation email does not match your signed-in account.");
+  if (invitation.claimedUid && invitation.claimedUid !== user.uid) throw new Error("This invitation is linked to another account.");
+  if (!invitation.claimedUid) await update(invitationRef,{claimedUid:user.uid,status:"claimed",claimedAt:Date.now()});
+  if (auth.currentUser?.uid === user.uid) $("request-access-status").textContent = "Invitation found. Waiting for the Super Admin to Accept or Delete it.";
+}
+$("check-admin-invitation").addEventListener("click", async () => {
+  const user = auth.currentUser; if (!user) return;
+  const button = $("check-admin-invitation"); button.disabled = true;
+  try { await claimAdminInvitation(user); } catch(error) { $("request-access-status").textContent = error.message || "Could not check invitation."; }
+  finally { button.disabled = false; }
 });
 function authError(error) {
   const messages = {
@@ -782,11 +754,11 @@ async function saveAdminPermissions(context) {
 }
 function renderAdminAccess() {
   if (adminProfile?.role !== "super") return permissionDenied("super admin");
-  const requests = Object.entries(adminRequestsData || {}).filter(([,request])=>request?.status === "pending");
-  const requestList = requests.map(([uid,request]) => `<article class="content-row"><div class="row-icon">✉</div><div class="row-main"><strong>${esc(request.email || "Unknown email")}</strong><p>Requested ${request.requestedAt ? new Date(request.requestedAt).toLocaleString() : "recently"}</p><div class="row-meta"><span class="badge badge-muted">Pending approval</span></div></div><div class="row-actions"><button class="small-action" data-action="approve-admin-request" data-id="${esc(uid)}">Review & approve</button><button class="small-action danger" data-action="reject-admin-request" data-id="${esc(uid)}">Reject</button></div></article>`).join("");
-  const rows = Object.entries(adminsData || {});
-  const list = rows.map(([uid,admin]) => `<article class="content-row"><div class="row-icon">♙</div><div class="row-main"><strong>${esc(admin.email || "Admin account")}</strong><p>${esc(uid)}</p><div class="row-meta"><span class="badge ${admin.role === "super" ? "badge-green" : "badge-muted"}">${esc(admin.role || "normal")}</span><span class="badge badge-muted">${Object.entries(admin.permissions || {}).filter(([,v])=>v===true).map(([k])=>k).join(", ") || (admin.role === "super" ? "Full access" : "No extra permissions")}</span></div></div><div class="row-actions">${uid === currentUser?.uid ? `<span class="badge badge-green">You</span>` : uid === "-P6EIURxhvKTnOwy-8Ty" ? `<span class="badge badge-muted">Legacy key · migration pending</span>` : `<button class="small-action" data-action="edit-admin" data-id="${esc(uid)}">${admin.role === "super" ? "Manage Super Admin" : "Edit permissions"}</button><button class="small-action danger" data-action="remove-admin" data-id="${esc(uid)}">Revoke access</button>`}</div></article>`).join("");
-  return `<div class="welcome-row"><div><h2>Admin access</h2><p>Review access requests, approve administrators and manage their permissions.</p></div></div><div class="helper-box"><strong>How it works:</strong> ask the person to sign in with Google on the Admin Panel and submit an access request. Their Firebase UID is captured automatically. No UID lookup, Cloud Function or paid backend is needed. Only a Super Admin can approve access.</div><section class="settings-card"><h3>Pending access requests <span class="badge badge-muted">${requests.length}</span></h3><div class="content-list">${requestList || emptyMarkup("No pending requests.","New access requests will appear here after someone signs in and submits a request.")}</div></section><div class="panel-title"><h3>Approved administrators</h3><span>${rows.length} admin(s)</span></div><div class="content-list">${list || emptyMarkup("No admin records found.","Your existing Super Admin account should appear here.")}</div>`;
+  const invites=Object.entries(adminInvitationsData||{});
+  const inviteList=invites.map(([key,item])=>{const ready=item?.status==="claimed"&&!!item.claimedUid;return `<article class="content-row"><div class="row-icon">✉</div><div class="row-main"><strong>${esc(item.email||"Unknown email")}</strong><p>Added ${item.createdAt?new Date(item.createdAt).toLocaleString():"recently"}</p><div class="row-meta"><span class="badge ${ready?"badge-green":"badge-muted"}">${ready?"Ready for approval":"Waiting for email sign-in"}</span></div></div><div class="row-actions"><button class="small-action" data-action="accept-admin-invitation" data-id="${esc(key)}" ${ready?"":"disabled"}>Accept</button><button class="small-action danger" data-action="delete-admin-invitation" data-id="${esc(key)}">Delete</button></div></article>`;}).join("");
+  const rows=Object.entries(adminsData||{});
+  const list=rows.map(([uid,admin])=>`<article class="content-row"><div class="row-icon">♙</div><div class="row-main"><strong>${esc(admin.email||"Admin account")}</strong><p>${esc(uid)}</p><div class="row-meta"><span class="badge ${admin.role==="super"?"badge-green":"badge-muted"}">${esc(admin.role||"normal")}</span><span class="badge badge-muted">${Object.entries(admin.permissions||{}).filter(([,v])=>v===true).map(([k])=>k).join(", ")||(admin.role==="super"?"Full access":"No extra permissions")}</span></div></div><div class="row-actions">${uid===currentUser?.uid?`<span class="badge badge-green">You</span>`:uid==="-P6EIURxhvKTnOwy-8Ty"?`<span class="badge badge-muted">Legacy key · migration pending</span>`:`<button class="small-action" data-action="edit-admin" data-id="${esc(uid)}">Edit permissions</button><button class="small-action danger" data-action="remove-admin" data-id="${esc(uid)}">Revoke access</button>`}</div></article>`).join("");
+  return `<div class="welcome-row"><div><h2>Admin access</h2><p>Add an email request, then Accept or Delete it.</p></div></div><form id="admin-invite-form" class="settings-card"><h3>Add administrator request</h3><div class="field"><label for="invite-email">Email address<input id="invite-email" name="invite-email" type="email" placeholder="person@example.com" required></label><small>Enter the email only. No UID is needed.</small></div><button class="button button-primary" type="submit">Send Request</button></form><div class="helper-box"><strong>Approval flow:</strong> the invited person signs in to the Admin Panel using this same verified email. Their request then becomes ready for your Accept or Delete decision. No Cloud Functions or paid backend are used.</div><section class="settings-card"><h3>Pending requests <span class="badge badge-muted">${invites.length}</span></h3><div class="content-list">${inviteList||emptyMarkup("No pending requests.","Email requests you add will appear here.")}</div></section><div class="panel-title"><h3>Approved administrators</h3><span>${rows.length} admin(s)</span></div><div class="content-list">${list||emptyMarkup("No admin records found.","Your existing Super Admin account should appear here.")}</div>`;
 }
 
 function renderField(field, value) {
@@ -911,7 +883,7 @@ $("editor-form").addEventListener("submit", async (event) => {
     else if (context.kind === "page") await savePage(context);
     else if (context.kind === "section") await saveSection(context);
     else if (context.kind === "admin") await saveAdminPermissions(context);
-    else if (context.kind === "admin-request") await approveAdminRequest(context);
+    else if (context.kind === "admin-invitation") await acceptAdminInvitation(context);
     closeModal();
     notify("Changes saved to Firebase.");
   } catch (error) {
@@ -1133,46 +1105,41 @@ async function deleteNotification(id) {
   if (!confirm("Delete this announcement permanently?")) return;
   await remove(ref(database,`notifications/${id}`));
 }
-function openAdminRequestEditor(uid) {
-  if (adminProfile?.role !== "super") throw new Error("Only a Super Admin can approve administrator requests.");
-  const request = adminRequestsData?.[uid];
-  if (!request || request.status !== "pending") throw new Error("This access request is no longer pending.");
-  if (adminsData?.[uid]) throw new Error("This account is already an administrator.");
-  const fields = [
-    {key:"role",label:"Role",type:"select",options:[["normal","Normal admin"],["super","Super admin"]],default:"normal"},
-    ...adminPermissionKeys.map(key=>({key:`permission_${key}`,label:`${key} permission`,type:"checkbox",default:false}))
-  ];
-  const values = {role:"normal",...Object.fromEntries(adminPermissionKeys.map(key=>[`permission_${key}`,false]))};
-  openModal(`Approve access · ${request.email || uid}`,renderFields(fields,values),{kind:"admin-request",id:uid});
+function emailInvitationKey(email) { return btoa(String(email).trim().toLowerCase()).replace(/\\+/g,"-").replace(/\\//g,"_").replace(/=+$/g,""); }
+async function sendAdminInvitation(form) {
+  if (adminProfile?.role !== "super") throw new Error("Only a Super Admin can invite administrators.");
+  const email=String(form.querySelector('[name="invite-email"]')?.value||"").trim().toLowerCase();
+  if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) throw new Error("Enter a valid email address.");
+  if (Object.values(adminsData||{}).some(a=>String(a?.email||"").toLowerCase()===email)) throw new Error("This email is already an administrator.");
+  const key=emailInvitationKey(email), invitationRef=ref(database,`adminInvitations/${key}`);
+  if ((await get(invitationRef)).exists()) throw new Error("An invitation for this email is already pending.");
+  await set(invitationRef,{email,status:"invited",createdAt:Date.now(),createdBy:currentUser.uid});
+  await writeAudit("admin-invite","adminInvitations",key,`Created invitation for ${email}`);
+  form.reset(); notify(`Request added for ${email}`);
 }
-async function approveAdminRequest(context) {
-  if (adminProfile?.role !== "super") throw new Error("Only a Super Admin can approve administrator requests.");
-  const request = adminRequestsData?.[context.id];
-  if (!request || request.status !== "pending") throw new Error("This request is no longer pending.");
-  if (adminsData?.[context.id]) throw new Error("This account is already an administrator.");
-  const raw = readFields($("editor-fields"));
-  const role = raw.role === "super" ? "super" : "normal";
-  const superCount = Object.values(adminsData || {}).filter(admin=>admin?.role === "super").length;
-  if (role === "super" && !confirm("Approve this request as a Super Admin? They will receive full access.")) return;
-  const permissions = role === "super"
-    ? Object.fromEntries(adminPermissionKeys.map(key=>[key,true]))
-    : Object.fromEntries(adminPermissionKeys.map(key=>[key,raw[`permission_${key}`]===true]));
-  const writes = {};
-  writes[`admins/${context.id}`] = {email:String(request.email).toLowerCase(),role,permissions,createdAt:Date.now(),approvedBy:currentUser.uid};
-  writes[`adminUids/${context.id}`] = true;
-  writes[`adminRequests/${context.id}`] = null;
-  await update(ref(database),writes);
-  await writeAudit("admin-create","admins",context.id,`Approved administrator request for ${request.email}`);
-  notify(`Administrator approved: ${request.email}`);
+function openAdminInvitationEditor(key) {
+  const invitation=adminInvitationsData?.[key];
+  if (adminProfile?.role!=="super") throw new Error("Only a Super Admin can accept invitations.");
+  if (!invitation?.claimedUid || invitation.status!=="claimed") throw new Error("The invited person must sign in with this email before you can accept.");
+  const fields=[{key:"role",label:"Role",type:"select",options:[["normal","Normal admin"],["super","Super admin"]],default:"normal"},...adminPermissionKeys.map(key=>({key:`permission_${key}`,label:`${key} permission`,type:"checkbox",default:false}))];
+  const values={role:"normal",...Object.fromEntries(adminPermissionKeys.map(key=>[`permission_${key}`,false]))};
+  openModal(`Accept invitation · ${invitation.email}`,renderFields(fields,values),{kind:"admin-invitation",id:key});
 }
-async function rejectAdminRequest(uid) {
-  if (adminProfile?.role !== "super") throw new Error("Only a Super Admin can reject administrator requests.");
-  const request = adminRequestsData?.[uid];
-  if (!request) throw new Error("This request no longer exists.");
-  if (!confirm(`Reject the admin access request from ${request.email || uid}?`)) return;
-  await remove(ref(database,`adminRequests/${uid}`));
-  await writeAudit("admin-request-reject","adminRequests",uid,`Rejected administrator request from ${request.email || uid}`);
-  notify("Administrator request rejected.");
+async function acceptAdminInvitation(context) {
+  if (adminProfile?.role!=="super") throw new Error("Only a Super Admin can accept invitations.");
+  const invitation=adminInvitationsData?.[context.id], uid=invitation?.claimedUid;
+  if (!invitation || invitation.status!=="claimed" || !uid) throw new Error("The invited person has not signed in with that email yet.");
+  const raw=readFields($("editor-fields")), role=raw.role==="super"?"super":"normal";
+  if (role==="super" && !confirm("Accept as Super Admin? This grants full access.")) return;
+  const permissions=role==="super"?Object.fromEntries(adminPermissionKeys.map(k=>[k,true])):Object.fromEntries(adminPermissionKeys.map(k=>[k,raw[`permission_${k}`]===true]));
+  const writes={}; writes[`admins/${uid}`]={email:String(invitation.email).toLowerCase(),role,permissions,createdAt:Date.now(),approvedBy:currentUser.uid}; writes[`adminUids/${uid}`]=true; writes[`adminInvitations/${context.id}`]=null;
+  await update(ref(database),writes); await writeAudit("admin-create","admins",uid,`Accepted invitation for ${invitation.email}`); notify(`Administrator accepted: ${invitation.email}`);
+}
+async function deleteAdminInvitation(key) {
+  if (adminProfile?.role!=="super") throw new Error("Only a Super Admin can delete invitations.");
+  const invitation=adminInvitationsData?.[key]; if (!invitation) throw new Error("Invitation no longer exists.");
+  if (!confirm(`Delete the invitation for ${invitation.email}?`)) return;
+  await remove(ref(database,`adminInvitations/${key}`)); await writeAudit("admin-invite-delete","adminInvitations",key,`Deleted invitation for ${invitation.email}`); notify("Invitation deleted.");
 }
 
 async function removeAdmin(uid) {
@@ -1292,8 +1259,8 @@ $("content-view").addEventListener("click", async (event) => {
       case "delete-notification": await deleteNotification(id); break;
       case "remove-admin": await removeAdmin(id); break;
       case "edit-admin": openAdminEditor(id); break;
-      case "approve-admin-request": openAdminRequestEditor(id); break;
-      case "reject-admin-request": await rejectAdminRequest(id); break;
+      case "accept-admin-invitation": openAdminInvitationEditor(id); break;
+      case "delete-admin-invitation": await deleteAdminInvitation(id); break;
       default: break;
     }
   } catch (error) {
@@ -1305,6 +1272,10 @@ $("content-view").addEventListener("submit", async (event) => {
   if (event.target.id === "notification-form") {
     event.preventDefault();
     try { await addNotification(event.target); } catch (error) { notify(error.message,"error"); }
+  }
+  if (event.target.id === "admin-invite-form") {
+    event.preventDefault();
+    try { await sendAdminInvitation(event.target); } catch(error) { notify(error.message || "Could not add invitation.","error"); }
   }
   if (event.target.id === "backup-restore-form") {
     event.preventDefault();
