@@ -998,23 +998,24 @@ async function saveCollection(context) {
 async function savePage(context) {
   if (!can("pages")) throw new Error("You do not have permission to edit pages.");
   const raw = readFields($("editor-fields"));
-  const existing = siteContent.pages?.[context.id] || {};
-  const permanent = context.id ? isPermanentPage(context.id,{...existing,...raw}) : false;
+  const currentId = context.id || null;
+  const current = currentId ? siteContent.pages?.[currentId] || {} : {};
+  const permanent = currentId ? isPermanentPage(currentId,{...current,...raw}) : false;
   if (!raw.title || (!permanent && !raw.slug)) throw new Error("Page title and slug are required.");
-  const id = context.id || await uniquePageId(raw.slug);
+  const id = currentId || await uniquePageId(raw.slug);
   const existing = siteContent.pages?.[id] || {};
-  const duplicate = entries(siteContent.pages).find(([otherId,page]) => otherId !== id && page?.slug === slug);
-  if (duplicate) throw new Error("Another page already uses this slug. Choose a unique slug.");
-  const permanent = isPermanentPage(id,{...existing,...raw});
   const slug = permanent ? safeKey(existing.slug || id) : safeKey(raw.slug);
   if (!slug) throw new Error("Enter a URL-friendly page slug.");
-  const payload = { ...existing, title:raw.title, slug, seoTitle:raw.seoTitle || "", metaDescription:raw.metaDescription || "", ogTitle:raw.ogTitle || "", ogDescription:raw.ogDescription || "", ogImage:raw.ogImage || "", canonicalUrl:raw.canonicalUrl || "", status:permanent ? "published" : raw.status || existing.status || "published", enabled:permanent ? true : raw.enabled !== false };
+  const duplicate = entries(siteContent.pages).find(([otherId,page]) => otherId !== id && page?.slug === slug);
+  if (duplicate) throw new Error("Another page already uses this slug. Choose a unique slug.");
+  const locked = permanent || isPermanentPage(id,{...existing,...raw});
+  const payload = { ...existing, title:raw.title, slug, seoTitle:raw.seoTitle || "", metaDescription:raw.metaDescription || "", ogTitle:raw.ogTitle || "", ogDescription:raw.ogDescription || "", ogImage:raw.ogImage || "", canonicalUrl:raw.canonicalUrl || "", status:locked ? "published" : raw.status || existing.status || "published", enabled:locked ? true : raw.enabled !== false };
   if (payload.ogImage) ensureImageReference(payload.ogImage,"Open Graph image");
   if (payload.canonicalUrl) ensureWebUrl(payload.canonicalUrl,"Canonical URL",false);
-  if (existing && context.id) await push(ref(database,`siteContentHistory/pages/${id}`),{record:existing,uid:currentUser?.uid || "",timestamp:Date.now(),reason:"before-edit"});
+  if (currentId) await push(ref(database,`siteContentHistory/pages/${id}`),{record:existing,uid:currentUser?.uid || "",timestamp:Date.now(),reason:"before-edit"});
   const pagePatch = Object.fromEntries(Object.entries(payload).map(([key,value])=>[`siteContent/pages/${id}/${key}`,value]));
   await update(ref(database),pagePatch);
-  await writeAudit(context.id ? "update" : "create","pages",id,`${context.id ? "Updated" : "Created"} page`);
+  await writeAudit(currentId ? "update" : "create","pages",id,`${currentId ? "Updated" : "Created"} page`);
 }
 async function uniquePageId(proposed) {
   const base = safeKey(proposed); let id=base, i=2;
