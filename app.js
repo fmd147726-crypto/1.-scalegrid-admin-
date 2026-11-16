@@ -326,6 +326,44 @@ async function refreshAdminAuthorization(user) {
 function subscribeData() {
   stopDataSubscriptions();
   siteContent = {};
+  const activeUid = currentUser?.uid;
+  if (activeUid) {
+    dataUnsubscribers.push(onValue(ref(database,`admins/${activeUid}`),(snapshot)=>{
+      if (currentUser?.uid !== activeUid) return;
+      if (!snapshot.exists()) {
+        const user = currentUser;
+        stopDataSubscriptions();
+        adminProfile = null;
+        showPending(user);
+        return;
+      }
+      const record = snapshot.val() || {};
+      if (record.email && currentUser.email && String(record.email).toLowerCase() !== String(currentUser.email).toLowerCase()) {
+        const user = currentUser;
+        stopDataSubscriptions();
+        adminProfile = null;
+        showPending(user);
+        return;
+      }
+      const permissions = record.permissions || {};
+      const nextProfile = {
+        email: record.email || currentUser.email || "",
+        role: record.role === "super" ? "super" : "normal",
+        permissions: {
+          ...permissions,
+          faqs: permissions.faqs ?? permissions.FAQs ?? permissions.faq ?? false,
+          portfolio: permissions.portfolio ?? permissions.Portfolio ?? false,
+          pricing: permissions.pricing ?? permissions.Pricing ?? false,
+          sections: permissions.sections ?? permissions.Sections ?? false
+        }
+      };
+      if (JSON.stringify(nextProfile) !== JSON.stringify(adminProfile)) {
+        adminProfile = nextProfile;
+        showApp();
+        subscribeData();
+      }
+    },(error)=>console.error("Live administrator profile refresh failed:",error)));
+  }
   const sourcePermissions = [
     ["settings",["settings"]],
     ["navigation",["navigation","content"]],
@@ -536,8 +574,20 @@ function validateWorkingContent(source) {
 }
 async function publishWebsite() {
   if (!can("publishing")) throw new Error("You do not have publishing permission.");
-  const fresh = await get(ref(database,"siteContent"));
-  const latest = fresh.exists() ? fresh.val() : {};
+  // The database rules intentionally deny reads at /siteContent while granting
+  // permission-gated reads to each collection. Fetch those allowed paths
+  // individually instead of requesting the protected parent node.
+  const publishCollections = [
+    "settings","navigation","serviceCategories","services","portfolioCategories",
+    "portfolio","faqCategories","faqs","pages","process","features","socialLinks","media"
+  ];
+  const snapshots = await Promise.all(
+    publishCollections.map(key => get(ref(database,`siteContent/${key}`)))
+  );
+  const latest = Object.fromEntries(publishCollections.map((key,index) => [
+    key,
+    snapshots[index].exists() ? snapshots[index].val() : {}
+  ]));
   if (!latest.pages?.home) throw new Error("The Home page is missing. Create or restore it before publishing.");
   if (latest.pages.home.enabled === false || ["draft","archived"].includes(latest.pages.home.status)) throw new Error("The Home page cannot be hidden, drafted, or archived.");
   const validationErrors=validateWorkingContent(latest);
@@ -657,7 +707,7 @@ const adminPermissionKeys = ["services","serviceCategories","portfolio","portfol
 function openAdminEditor(uid) {
   if (adminProfile?.role !== "super" || uid === currentUser?.uid) throw new Error("Only a Super Admin can edit another administrator.");
   const admin=adminsData?.[uid];
-  if (!admin || admin.role === "super") throw new Error("This account cannot be edited from the Normal Admin permissions editor.");
+  if (!admin) throw new Error("This administrator record no longer exists.");
   const fields=[
     {key:"role",label:"Role",type:"select",options:[["normal","Normal admin"],["super","Super admin"]],default:"normal"},
     ...adminPermissionKeys.map(key=>({key:`permission_${key}`,label:`${key} permission`,type:"checkbox",default:admin.permissions?.[key]===true}))
@@ -668,10 +718,15 @@ function openAdminEditor(uid) {
 async function saveAdminPermissions(context) {
   if (adminProfile?.role !== "super" || context.id === currentUser?.uid) throw new Error("Only a Super Admin can edit another administrator.");
   const existing=adminsData?.[context.id];
-  if (!existing || existing.role === "super") throw new Error("This administrator record cannot be changed here.");
+  if (!existing) throw new Error("This administrator record no longer exists.");
   const raw=readFields($("editor-fields"));
   const role=raw.role === "super" ? "super" : "normal";
-  if (role === "super" && !confirm("Promote this administrator to Super Admin? They will receive full access.")) return;
+  const superCount=Object.values(adminsData || {}).filter(admin=>admin?.role === "super").length;
+  if (existing.role !== "super" && role === "super" && !confirm("Promote this administrator to Super Admin? They will receive full access.")) return;
+  if (existing.role === "super" && role !== "super") {
+    if (superCount <= 1) throw new Error("You cannot demote the last remaining Super Admin.");
+    if (!confirm("Demote this Super Admin to Normal Admin? Their access will be limited to the selected permissions.")) return;
+  }
   const permissions=Object.fromEntries(adminPermissionKeys.map(key=>[key,raw[`permission_${key}`]===true]));
   await update(ref(database,`admins/${context.id}`),{role,permissions});
   await writeAudit("admin-permissions","admins",context.id,`Updated role and permissions for ${existing.email || context.id}`);
@@ -679,7 +734,7 @@ async function saveAdminPermissions(context) {
 function renderAdminAccess() {
   if (adminProfile?.role !== "super") return permissionDenied("super admin");
   const rows = Object.entries(adminsData || {});
-  const list = rows.map(([uid,admin]) => `<article class="content-row"><div class="row-icon">♙</div><div class="row-main"><strong>${esc(admin.email || "Admin account")}</strong><p>${esc(uid)}</p><div class="row-meta"><span class="badge ${admin.role === "super" ? "badge-green" : "badge-muted"}">${esc(admin.role || "normal")}</span><span class="badge badge-muted">${Object.entries(admin.permissions || {}).filter(([,v])=>v===true).map(([k])=>k).join(", ") || (admin.role === "super" ? "Full access" : "No extra permissions")}</span></div></div><div class="row-actions">${uid === currentUser?.uid ? `<span class="badge badge-green">You</span>` : uid === "-P6EIURxhvKTnOwy-8Ty" ? `<span class="badge badge-muted">Legacy key · migration pending</span>` : `${admin.role === "super" ? `<span class="badge badge-green">Super Admin</span>` : `<button class="small-action" data-action="edit-admin" data-id="${esc(uid)}">Edit permissions</button><button class="small-action danger" data-action="remove-admin" data-id="${esc(uid)}">Revoke access</button>`}`}</div></article>`).join("");
+  const list = rows.map(([uid,admin]) => `<article class="content-row"><div class="row-icon">♙</div><div class="row-main"><strong>${esc(admin.email || "Admin account")}</strong><p>${esc(uid)}</p><div class="row-meta"><span class="badge ${admin.role === "super" ? "badge-green" : "badge-muted"}">${esc(admin.role || "normal")}</span><span class="badge badge-muted">${Object.entries(admin.permissions || {}).filter(([,v])=>v===true).map(([k])=>k).join(", ") || (admin.role === "super" ? "Full access" : "No extra permissions")}</span></div></div><div class="row-actions">${uid === currentUser?.uid ? `<span class="badge badge-green">You</span>` : uid === "-P6EIURxhvKTnOwy-8Ty" ? `<span class="badge badge-muted">Legacy key · migration pending</span>` : `<button class="small-action" data-action="edit-admin" data-id="${esc(uid)}">${admin.role === "super" ? "Manage Super Admin" : "Edit permissions"}</button><button class="small-action danger" data-action="remove-admin" data-id="${esc(uid)}">Revoke access</button>`}</div></article>`).join("");
   return `<div class="welcome-row"><div><h2>Admin access</h2><p>Approve existing Firebase Authentication accounts and assign dashboard roles.</p></div></div><div class="helper-box"><strong>Important:</strong> create the user's sign-in account in Firebase Authentication first. Then copy its UID into this form. The Realtime Database security rules also check the UID allowlist, so client-side role checks are not the only protection.</div><section class="settings-card"><h3>Add an administrator</h3><form id="admin-form"><div class="split-grid"><div class="field"><label>Firebase Auth UID<input name="uid" required placeholder="Paste the user's exact UID"></label></div><div class="field"><label>Account email<input name="email" type="email" required placeholder="admin@example.com"></label></div></div><div class="field"><label>Role<select name="role"><option value="normal">Normal admin</option><option value="super">Super admin</option></select></label></div><div class="field"><span class="field-label">Permissions for normal admins</span><div class="permission-grid">${[["services","Services"],["serviceCategories","Service categories"],["portfolio","Portfolio"],["portfolioCategories","Portfolio categories"],["faqs","FAQs"],["faqCategories","FAQ categories"],["pages","Pages"],["sections","Page sections"],["process","Process steps"],["features","Why choose us"],["navigation","Navigation"],["socialLinks","Social links"],["media","Media library"],["notifications","Announcements"],["settings","Site settings"],["publishing","Publish website"]].map(([key,label])=>`<label class="field-check"><input type="checkbox" name="permission_${key}"> ${label}</label>`).join("")}</div></div><button class="button button-primary" type="submit">Approve administrator ↗</button></form></section><div class="panel-title"><h3>Approved accounts</h3><span>${rows.length} admin(s)</span></div><div class="content-list">${list || emptyMarkup("No admin records found.","After creating the first super admin in Firebase Console, it will appear here.")}</div>`;
 }
 
@@ -1050,10 +1105,15 @@ async function addAdmin(form) {
 async function removeAdmin(uid) {
   if (adminProfile?.role !== "super" || uid === currentUser?.uid) return;
   if (uid === "-P6EIURxhvKTnOwy-8Ty") throw new Error("The legacy push-key profile is protected until its actual Authentication UID is verified.");
-  if (adminsData?.[uid]?.role === "super") throw new Error("Another Super Admin cannot be revoked from this dashboard.");
-  if (!confirm("Revoke this administrator's access? Their Firebase Authentication account will not be deleted.")) return;
-  await remove(ref(database,`admins/${uid}`));
-  await remove(ref(database,`adminUids/${uid}`));
+  const target=adminsData?.[uid];
+  if (!target) throw new Error("This administrator record no longer exists.");
+  const superCount=Object.values(adminsData || {}).filter(admin=>admin?.role === "super").length;
+  if (target.role === "super" && superCount <= 1) throw new Error("You cannot revoke the last remaining Super Admin.");
+  if (!confirm(`Revoke access for ${target.email || uid}? Their Firebase Authentication account will not be deleted.`)) return;
+  const writes={};
+  writes[`admins/${uid}`]=null;
+  writes[`adminUids/${uid}`]=null;
+  await update(ref(database),writes);
   await writeAudit("admin-revoke","admins",uid,"Revoked administrator access");
   notify("Administrator access revoked.");
 }
