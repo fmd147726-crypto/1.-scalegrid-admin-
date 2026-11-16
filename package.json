@@ -1,0 +1,11 @@
+{
+  "name": "scalegrid-admin-panel",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "check": "node --check app.js && node --check content-projection.js && node --check starter-content.js && node --check scripts/inspect-database-export.mjs && node --check scripts/prepare-normal-admin-patch.mjs",
+    "validate:firebase": "node scripts/validate-firebase-package.mjs",
+    "deploy:rules": "firebase deploy --only database"
+  }
+}
