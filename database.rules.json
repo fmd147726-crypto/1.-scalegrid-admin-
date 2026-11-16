@@ -114,11 +114,10 @@
         }
       }
     },
-    "adminRequests": {
-      "$uid": {
-        ".read": "auth != null && (auth.uid === $uid || (root.child('adminUids').child(auth.uid).val() === true && root.child('admins').child(auth.uid).child('role').val() === 'super'))",
-        ".write": "auth != null && ((root.child('adminUids').child(auth.uid).val() === true && root.child('admins').child(auth.uid).child('role').val() === 'super') || (auth.uid === $uid && auth.token.email_verified === true && !data.exists() && newData.child('email').val() === auth.token.email && newData.child('status').val() === 'pending'))",
-        ".validate": "newData.hasChildren(['email','status','requestedAt']) && newData.child('email').isString() && newData.child('status').val() === 'pending' && newData.child('requestedAt').isNumber()"
+    "adminInvitations": {
+      "$emailKey": {
+        ".read": "auth != null && ((root.child('adminUids').child(auth.uid).val() === true && root.child('admins').child(auth.uid).child('role').val() === 'super') || (auth.token.email_verified === true && auth.token.email === data.child('email').val()))",
+        ".write": "auth != null && ((root.child('adminUids').child(auth.uid).val() === true && root.child('admins').child(auth.uid).child('role').val() === 'super') || (auth.token.email_verified === true && auth.token.email === data.child('email').val() && !data.child('claimedUid').exists() && newData.child('email').val() === data.child('email').val() && newData.child('claimedUid').val() === auth.uid && newData.child('status').val() === 'claimed' && newData.child('createdAt').val() === data.child('createdAt').val() && newData.child('createdBy').val() === data.child('createdBy').val()))"
       }
     }
   }
