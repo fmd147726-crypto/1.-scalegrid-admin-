@@ -39,4 +39,4 @@ The first script is read-only. The second creates a proposed path-specific JSON 
 
 
 ## Firebase seed files and rules rollout
-See `firebase-seed/README.md` for the seed JSON and safe import sequence. The seed is only a starter structure; it is not the live database export. Do not import it at database root. Preserve all existing records and import the `siteContent`/`publicContent` nodes only when absent. Bootstrap the existing Super Admin UID before deploying the stricter rules. The legacy Normal Admin push-style key must not be used as an Authentication UID.
+See `firebase-seed/README.md` for the safe starter-content approach. No database import seed is provided because the live export was not available for comparison. Use the Admin Panel's non-destructive starter-content installer after verifying the Firebase project and Super Admin account. Do not import a generated root-level JSON over the live database. Bootstrap the existing Super Admin UID before deploying the stricter rules. The legacy Normal Admin push-style key must not be used as an Authentication UID.
