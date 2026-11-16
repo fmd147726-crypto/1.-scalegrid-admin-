@@ -142,7 +142,6 @@ const collectionSchemas = {
     label: "Process step", singular: "step", icon: "⇢", permission: "content", primary: "title", secondary: "description",
     fields: [
       { key:"serviceCategoryId", label:"Service page (optional)", type:"selectCategories", help:"Leave blank to show this step across all service pages." },
-      { key:"serviceCategoryId", label:"Service page (optional)", type:"selectCategories", help:"Leave blank to show this step across all service pages." },
       { key:"title", label:"Step title", type:"text", required:true },
       { key:"description", label:"Description", type:"textarea", required:true },
       { key:"icon", label:"Icon / symbol", type:"text" },
@@ -153,7 +152,6 @@ const collectionSchemas = {
   features: {
     label: "Value point", singular: "value point", icon: "✧", permission: "content", primary: "title", secondary: "description",
     fields: [
-      { key:"serviceCategoryId", label:"Service page (optional)", type:"selectCategories", help:"Leave blank to show this benefit across all service pages." },
       { key:"serviceCategoryId", label:"Service page (optional)", type:"selectCategories", help:"Leave blank to show this benefit across all service pages." },
       { key:"title", label:"Title", type:"text", required:true },
       { key:"description", label:"Description", type:"textarea", required:true },
@@ -703,10 +701,22 @@ function renderCollection(collection) {
 }
 function emptyMarkup(title,description) { return `<div class="empty-state"><div class="empty-mark">＋</div><h3>${esc(title)}</h3><p>${esc(description)}</p></div>`; }
 
+function isPermanentPage(pageId,page) {
+  const slug = text(page?.slug || pageId).toLowerCase();
+  return pageId === "home" || pageId === "about" || slug === "home" || slug === "about";
+}
+function isPermanentContactSection(pageId,section) {
+  return pageId === "home" && section?.type === "contact";
+}
 function renderPages() {
   if (!can("pages")) return permissionDenied("pages");
   const rows = entries(siteContent.pages);
-  const html = rows.map(([id,page]) => `<article class="content-row"><div class="row-icon">▤</div><div class="row-main"><strong>${esc(page.title || id)}</strong><p>/${esc(page.slug || id)} · ${entries(page.sections).length} section(s)</p><div class="row-meta"><span class="badge ${page.enabled === false || page.status === "draft" ? "badge-muted" : "badge-green"}">${page.enabled === false ? "Hidden" : esc(page.status || "Published")}</span><span class="badge badge-muted">${id === "home" ? "Home page" : "Custom page"}</span></div></div><div class="row-actions"><button class="small-action" data-action="edit-page" data-id="${esc(id)}">Edit page</button>${can("sections") ? `<button class="small-action" data-action="manage-sections" data-id="${esc(id)}">Sections</button>` : ""}<button class="small-action" data-action="toggle-page" data-id="${esc(id)}">${page.enabled === false ? "Publish" : "Unpublish"}</button>${id === "home" || !can("sections") ? "" : `<button class="small-action danger" data-action="delete-page" data-id="${esc(id)}">Delete</button>`}</div></article>`).join("");
+  const html = rows.map(([id,page]) => {
+    const permanent = isPermanentPage(id,page);
+    const badge = permanent ? "Permanent" : page.enabled === false ? "Hidden" : esc(page.status || "Published");
+    const badgeClass = permanent ? "badge-muted" : page.enabled === false || page.status === "draft" ? "badge-muted" : "badge-green";
+    return `<article class="content-row"><div class="row-icon">▤</div><div class="row-main"><strong>${esc(page.title || id)}</strong><p>/${esc(page.slug || id)} · ${entries(page.sections).length} section(s)</p><div class="row-meta"><span class="badge ${badgeClass}">${badge}</span><span class="badge badge-muted">${id === "home" ? "Home page" : id === "about" ? "About page" : "Custom page"}</span></div></div><div class="row-actions"><button class="small-action" data-action="edit-page" data-id="${esc(id)}">Edit page</button>${can("sections") ? `<button class="small-action" data-action="manage-sections" data-id="${esc(id)}">Sections</button>` : ""}${permanent ? "" : `<button class="small-action" data-action="toggle-page" data-id="${esc(id)}">${page.enabled === false ? "Publish" : "Unpublish"}</button>`}${permanent || !can("sections") ? "" : `<button class="small-action danger" data-action="delete-page" data-id="${esc(id)}">Delete</button>`}</div></article>`;
+  }).join("");
   return `<div class="welcome-row"><div><h2>Pages & sections</h2><p>Create new pages and build them from reusable dynamic sections. No page content needs to be hardcoded.</p></div><button class="button button-primary" data-action="add-page">＋ Create page</button></div><div class="helper-box">Create a page, add sections such as a hero, text block, service grid, portfolio grid, FAQ list or contact block, then add a navigation item using <strong>#page/your-page-slug</strong> if visitors should be able to open it from the menu.</div><div class="content-list">${html || emptyMarkup("No pages created yet.","Create your first page to begin building your website structure.")}</div>`;
 }
 function renderSections(pageId) {
@@ -714,7 +724,10 @@ function renderSections(pageId) {
   const page = siteContent.pages?.[pageId];
   if (!page) return `<div class="empty-state"><h3>Page not found</h3><button class="button button-secondary" data-action="go" data-route="pages">Back to pages</button></div>`;
   const rows = entries(page.sections);
-  const html = rows.map(([id,section]) => `<div class="section-row"><div class="row-icon">${esc((section.type || "S").slice(0,1).toUpperCase())}</div><div class="section-row-main"><strong>${esc(section.title || section.eyebrow || section.kicker || id)}</strong><span>${esc((section.type || "section").replace(/[A-Z]/g,m=>" "+m.toLowerCase()))} · ${esc(section.anchor || id)}</span></div><div class="section-row-actions"><button class="small-action" data-action="move-section" data-page="${esc(pageId)}" data-id="${esc(id)}" data-direction="-1">↑</button><button class="small-action" data-action="move-section" data-page="${esc(pageId)}" data-id="${esc(id)}" data-direction="1">↓</button><button class="small-action" data-action="edit-section" data-page="${esc(pageId)}" data-id="${esc(id)}">Edit</button><button class="small-action" data-action="toggle-section" data-page="${esc(pageId)}" data-id="${esc(id)}">${section.enabled === false ? "Show" : "Hide"}</button><button class="small-action danger" data-action="delete-section" data-page="${esc(pageId)}" data-id="${esc(id)}">Delete</button></div></div>`).join("");
+  const html = rows.map(([id,section]) => {
+    const permanent = isPermanentContactSection(pageId,section);
+    return `<div class="section-row"><div class="row-icon">${esc((section.type || "S").slice(0,1).toUpperCase())}</div><div class="section-row-main"><strong>${esc(section.title || section.eyebrow || section.kicker || id)}</strong><span>${esc((section.type || "section").replace(/[A-Z]/g,m=>" "+m.toLowerCase()))} · ${esc(section.anchor || id)}</span></div><div class="section-row-actions"><button class="small-action" data-action="move-section" data-page="${esc(pageId)}" data-id="${esc(id)}" data-direction="-1">↑</button><button class="small-action" data-action="move-section" data-page="${esc(pageId)}" data-id="${esc(id)}" data-direction="1">↓</button><button class="small-action" data-action="edit-section" data-page="${esc(pageId)}" data-id="${esc(id)}">Edit</button>${permanent ? `<span class="badge badge-muted">Permanent contact</span>` : `<button class="small-action" data-action="toggle-section" data-page="${esc(pageId)}" data-id="${esc(id)}">${section.enabled === false ? "Show" : "Hide"}</button><button class="small-action danger" data-action="delete-section" data-page="${esc(pageId)}" data-id="${esc(id)}">Delete</button>`}</div></div>`;
+  }).join("");
   return `<div class="welcome-row"><div><h2>${esc(page.title || pageId)} sections</h2><p>Every section can be edited, reordered or hidden independently.</p></div><div class="welcome-actions"><button class="button button-secondary" data-action="go" data-route="pages">← All pages</button><button class="button button-primary" data-action="add-section" data-page="${esc(pageId)}">＋ Add section</button></div></div><div class="helper-box">Section content is stored in Firebase. The public site uses the section type as a reusable display template; text, items, links and visibility are managed here.</div><div class="content-list">${html || emptyMarkup("This page has no sections yet.","Add a hero, text section, services grid, portfolio grid, FAQ block or contact section.")}</div>`;
 }
 
@@ -845,19 +858,23 @@ function openCollectionEditor(collection, id = null) {
 function openPageEditor(id = null) {
   if (!can("pages")) return;
   const existing = id ? siteContent.pages?.[id] || {} : {};
+  const permanent = id ? isPermanentPage(id,existing) : false;
   const defaults = { title:"", slug:"", seoTitle:"", metaDescription:"", ogTitle:"", ogDescription:"", ogImage:"", canonicalUrl:"", status:"published", enabled:true };
-  openModal(`${id ? "Edit" : "Create"} page`, renderFields([
+  const fields = [
     {key:"title",label:"Page title",type:"text",required:true},
-    {key:"slug",label:"Page slug",type:"text",required:true,help:"Visitors can reach this page through a menu link such as #page/about-us."},
+    ...(permanent ? [] : [{key:"slug",label:"Page slug",type:"text",required:true,help:"Visitors can reach this page through a menu link such as #page/your-page."}]),
     {key:"seoTitle",label:"SEO title",type:"text"},
     {key:"metaDescription",label:"Meta description",type:"textarea"},
     {key:"ogTitle",label:"Open Graph title",type:"text"},
     {key:"ogDescription",label:"Open Graph description",type:"textarea"},
     {key:"ogImage",label:"Open Graph image URL",type:"url"},
     {key:"canonicalUrl",label:"Canonical URL",type:"url"},
-    {key:"status",label:"Publishing status",type:"select",options:[["draft","Draft"],["published","Published"],["archived","Archived"]],default:"published"},
-    {key:"enabled",label:"Visible on website",type:"checkbox",default:true}
-  ],{...defaults,...existing}), {kind:"page",id});
+    ...(permanent ? [] : [
+      {key:"status",label:"Publishing status",type:"select",options:[["draft","Draft"],["published","Published"],["archived","Archived"]],default:"published"},
+      {key:"enabled",label:"Visible on website",type:"checkbox",default:true}
+    ])
+  ];
+  openModal(`${id ? "Edit" : "Create"} page`, `${permanent ? '<div class="helper-box">This is a permanent ScaleGrid page. Its URL and public visibility cannot be switched off.</div>' : ""}${renderFields(fields,{...defaults,...existing})}`, {kind:"page",id});
 }
 function fieldsForSectionType(type) {
   return [{key:"type",label:"Section type",type:"select",options:sectionTypeOptions,default:type},...(sectionFieldsByType[type] || sectionFieldsByType.richText),...commonSectionFields];
@@ -878,7 +895,8 @@ function openSectionEditor(pageId,id = null) {
   openModal(`${id ? "Edit" : "Add"} section`, `<div class="field"><label for="section-type">Section type<select id="section-type" data-section-type>${sectionTypeOptions.map(([key,label])=>`<option value="${key}" ${key===type?"selected":""}>${esc(label)}</option>`).join("")}</select></label><small>Choose a reusable layout. Its editable fields will appear below.</small></div><div id="section-dynamic-fields">${renderFields(fieldsForSectionType(type).filter(f=>f.key!=="type"),values)}</div>`, {kind:"section",pageId,id,values});
   // Section type selector is deliberately separate from generic data-field inputs.
   const typeSelect = $("editor-fields").querySelector("[data-section-type]");
-  if (typeSelect) typeSelect.addEventListener("change", () => {
+  const lockedContactSection = isPermanentContactSection(pageId,existing);
+  if (typeSelect && !lockedContactSection) typeSelect.addEventListener("change", () => {
     const previous = readFields($("editor-fields"));
     editorContext.values = { ...editorContext.values, ...previous, type:typeSelect.value };
     const fields = sectionFieldsByType[typeSelect.value] || sectionFieldsByType.richText;
@@ -980,16 +998,17 @@ async function saveCollection(context) {
 async function savePage(context) {
   if (!can("pages")) throw new Error("You do not have permission to edit pages.");
   const raw = readFields($("editor-fields"));
-  if (context.id === "home" && (raw.enabled === false || ["draft","archived"].includes(raw.status))) throw new Error("The Home page cannot be hidden, drafted, or archived.");
-  const fields = [{key:"title",label:"Page title",required:true},{key:"slug",label:"Page slug",required:true},{key:"metaDescription"},{key:"enabled"}];
-  if (!raw.title || !raw.slug) throw new Error("Page title and slug are required.");
+  const existing = siteContent.pages?.[context.id] || {};
+  const permanent = context.id ? isPermanentPage(context.id,{...existing,...raw}) : false;
+  if (!raw.title || (!permanent && !raw.slug)) throw new Error("Page title and slug are required.");
   const id = context.id || await uniquePageId(raw.slug);
   const existing = siteContent.pages?.[id] || {};
-  const slug = safeKey(raw.slug);
-  if (!slug) throw new Error("Enter a URL-friendly page slug.");
   const duplicate = entries(siteContent.pages).find(([otherId,page]) => otherId !== id && page?.slug === slug);
   if (duplicate) throw new Error("Another page already uses this slug. Choose a unique slug.");
-  const payload = { ...existing, title:raw.title, slug, seoTitle:raw.seoTitle || "", metaDescription:raw.metaDescription || "", ogTitle:raw.ogTitle || "", ogDescription:raw.ogDescription || "", ogImage:raw.ogImage || "", canonicalUrl:raw.canonicalUrl || "", status:raw.status || existing.status || "published", enabled:raw.enabled !== false };
+  const permanent = isPermanentPage(id,{...existing,...raw});
+  const slug = permanent ? safeKey(existing.slug || id) : safeKey(raw.slug);
+  if (!slug) throw new Error("Enter a URL-friendly page slug.");
+  const payload = { ...existing, title:raw.title, slug, seoTitle:raw.seoTitle || "", metaDescription:raw.metaDescription || "", ogTitle:raw.ogTitle || "", ogDescription:raw.ogDescription || "", ogImage:raw.ogImage || "", canonicalUrl:raw.canonicalUrl || "", status:permanent ? "published" : raw.status || existing.status || "published", enabled:permanent ? true : raw.enabled !== false };
   if (payload.ogImage) ensureImageReference(payload.ogImage,"Open Graph image");
   if (payload.canonicalUrl) ensureWebUrl(payload.canonicalUrl,"Canonical URL",false);
   if (existing && context.id) await push(ref(database,`siteContentHistory/pages/${id}`),{record:existing,uid:currentUser?.uid || "",timestamp:Date.now(),reason:"before-edit"});
@@ -1013,6 +1032,8 @@ async function saveSection(context) {
   const proposed = payload.anchor || payload.title || type;
   const sectionId = context.id || await uniqueSectionId(pageId,proposed);
   const existing = siteContent.pages?.[pageId]?.sections?.[sectionId] || null;
+  if (isPermanentContactSection(pageId,existing) && type !== "contact") throw new Error("The main Contact section on Home must remain a Contact section.");
+  if (isPermanentContactSection(pageId,existing)) payload.enabled = true;
   if (existing) await push(ref(database,`siteContentHistory/sections/${pageId}_${sectionId}`),{record:existing,uid:currentUser?.uid || "",timestamp:Date.now(),reason:"before-edit"});
   await set(ref(database,`siteContent/pages/${pageId}/sections/${sectionId}`),payload);
   await writeAudit(existing ? "update" : "create","sections",`${pageId}/${sectionId}`,`${existing ? "Updated" : "Created"} page section`);
@@ -1072,7 +1093,7 @@ async function deleteCollectionItem(collection,id) {
   await writeAudit("delete",collection,id,`Deleted ${collection} record`);
   notify("Item deleted.");
 }
-async function setSectionEnabled(pageId,id,enabled) { if (!can("sections")) throw new Error("You do not have permission to manage sections."); await update(ref(database,`siteContent/pages/${pageId}/sections/${id}`),{enabled}); }
+async function setSectionEnabled(pageId,id,enabled) { if (!can("sections")) throw new Error("You do not have permission to manage sections."); if (isPermanentContactSection(pageId,siteContent.pages?.[pageId]?.sections?.[id])) throw new Error("The main Contact section on Home is permanent."); await update(ref(database,`siteContent/pages/${pageId}/sections/${id}`),{enabled}); }
 async function moveSection(pageId,id,direction) {
   if (!can("sections")) throw new Error("You do not have permission to manage sections.");
   const rows = entries(siteContent.pages?.[pageId]?.sections);
@@ -1259,13 +1280,13 @@ $("content-view").addEventListener("click", async (event) => {
       case "manage-sections": selectedPageId=id; navigate("sections"); break;
       case "toggle-page": {
         if (!can("pages")) throw new Error("You do not have permission to manage pages.");
-        if (id === "home") { notify("The home page cannot be unpublished.","error"); break; }
+        if (isPermanentPage(id,siteContent.pages?.[id])) throw new Error("Home and About are permanent ScaleGrid pages and cannot be unpublished.");
         const current = siteContent.pages?.[id]?.enabled !== false;
         await update(ref(database),{[`siteContent/pages/${id}/enabled`]:!current}); break;
       }
       case "delete-page": {
         if (!can("pages") || !can("sections")) throw new Error("Deleting a page requires both Pages and Sections permissions.");
-        if (id === "home") break;
+        if (isPermanentPage(id,siteContent.pages?.[id])) throw new Error("Home and About are permanent ScaleGrid pages and cannot be deleted.");
         if (confirm("Delete this page and all its sections?")) {
           const old=siteContent.pages?.[id];
           if(old) await push(ref(database,`siteContentHistory/pages/${id}`),{record:old,uid:currentUser?.uid||"",timestamp:Date.now(),reason:"before-delete"});
@@ -1276,8 +1297,8 @@ $("content-view").addEventListener("click", async (event) => {
       }
       case "add-section": openSectionEditor(page); break;
       case "edit-section": openSectionEditor(page,id); break;
-      case "toggle-section": if (!can("sections")) throw new Error("You do not have permission to manage sections."); await setSectionEnabled(page,id,siteContent.pages?.[page]?.sections?.[id]?.enabled === false); break;
-      case "delete-section": if (!can("sections")) throw new Error("You do not have permission to manage sections."); if (confirm("Delete this section permanently?")) { const old=siteContent.pages?.[page]?.sections?.[id]; if(old) await push(ref(database,`siteContentHistory/sections/${page}_${id}`),{record:old,uid:currentUser?.uid||"",timestamp:Date.now(),reason:"before-delete"}); await remove(ref(database,`siteContent/pages/${page}/sections/${id}`)); await writeAudit("delete","sections",`${page}/${id}`,"Deleted page section"); } break;
+      case "toggle-section": if (!can("sections")) throw new Error("You do not have permission to manage sections."); if (isPermanentContactSection(page,siteContent.pages?.[page]?.sections?.[id])) throw new Error("The main Contact section on Home is permanent."); await setSectionEnabled(page,id,siteContent.pages?.[page]?.sections?.[id]?.enabled === false); break;
+      case "delete-section": if (!can("sections")) throw new Error("You do not have permission to manage sections."); if (isPermanentContactSection(page,siteContent.pages?.[page]?.sections?.[id])) throw new Error("The main Contact section on Home is permanent."); if (confirm("Delete this section permanently?")) { const old=siteContent.pages?.[page]?.sections?.[id]; if(old) await push(ref(database,`siteContentHistory/sections/${page}_${id}`),{record:old,uid:currentUser?.uid||"",timestamp:Date.now(),reason:"before-delete"}); await remove(ref(database,`siteContent/pages/${page}/sections/${id}`)); await writeAudit("delete","sections",`${page}/${id}`,"Deleted page section"); } break;
       case "move-section": await moveSection(page,id,Number(direction)); break;
       case "save-settings": await saveSettings(); break;
       case "toggle-notification": await toggleNotification(id); break;
