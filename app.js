@@ -206,6 +206,7 @@ let adminProfile = null;
 let siteContent = {};
 let notificationData = {};
 let adminsData = {};
+let adminRequestsData = {};
 let route = "dashboard";
 let selectedPageId = "home";
 let editorContext = null;
@@ -268,6 +269,21 @@ function showPending(user) {
   $("app-shell").hidden = true;
   $("pending-email").textContent = user.email || "Email not provided";
   $("pending-uid").textContent = user.uid;
+  $("request-access-status").textContent = "You can request access. A Super Admin must approve it before you can enter the dashboard.";
+  $("request-admin-access").disabled = false;
+  get(ref(database, `adminRequests/${user.uid}`)).then((snapshot) => {
+    if (auth.currentUser?.uid !== user.uid) return;
+    if (snapshot.exists()) {
+      $("request-access-status").textContent = "Your access request has been submitted and is waiting for Super Admin approval.";
+      $("request-admin-access").disabled = true;
+      $("request-admin-access").textContent = "Request submitted";
+    } else {
+      $("request-admin-access").textContent = "Request Admin Access";
+    }
+  }).catch((error) => {
+    console.warn("Could not check admin request status:", error);
+    $("request-access-status").textContent = "Could not check request status. Please try again.";
+  });
 }
 function showApp() {
   $("auth-screen").hidden = true;
@@ -405,6 +421,10 @@ function subscribeData() {
       adminsData = snapshot.exists() ? snapshot.val() : {};
       if (route === "adminAccess") renderRoute();
     }, (error) => console.warn("Admin list unavailable:", error)));
+    dataUnsubscribers.push(onValue(ref(database, "adminRequests"), (snapshot) => {
+      adminRequestsData = snapshot.exists() ? snapshot.val() : {};
+      if (route === "adminAccess") renderRoute();
+    }, (error) => console.warn("Admin requests unavailable:", error)));
   }
   dataUnsubscribers.push(onValue(ref(database, ".info/connected"), (snapshot) => { connected = snapshot.val() === true; setConnectionStatus(connected ? "online" : "error"); }));
 }
@@ -414,6 +434,31 @@ $("google-login").addEventListener("click", async () => {
   $("auth-message").textContent = "";
   try { await signInWithPopup(auth, googleProvider); }
   catch (error) { $("auth-message").textContent = authError(error); }
+});
+$("request-admin-access").addEventListener("click", async () => {
+  const user = auth.currentUser;
+  if (!user?.uid || !user.email) {
+    $("request-access-status").textContent = "Sign in with a Google account that has an email address before requesting access.";
+    return;
+  }
+  const button = $("request-admin-access");
+  button.disabled = true;
+  try {
+    const requestRef = ref(database, `adminRequests/${user.uid}`);
+    const existing = await get(requestRef);
+    if (existing.exists()) {
+      $("request-access-status").textContent = "Your request is already waiting for Super Admin approval.";
+      button.textContent = "Request submitted";
+      return;
+    }
+    await set(requestRef, {email:user.email.toLowerCase(), status:"pending", requestedAt:Date.now()});
+    $("request-access-status").textContent = "Request submitted. A Super Admin will review your email and choose your permissions.";
+    button.textContent = "Request submitted";
+  } catch (error) {
+    console.error("Admin access request failed:", error);
+    $("request-access-status").textContent = error.message || "Could not submit your request. Please try again.";
+    button.disabled = false;
+  }
 });
 $("email-login-form").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -733,9 +778,11 @@ async function saveAdminPermissions(context) {
 }
 function renderAdminAccess() {
   if (adminProfile?.role !== "super") return permissionDenied("super admin");
+  const requests = Object.entries(adminRequestsData || {}).filter(([,request])=>request?.status === "pending");
+  const requestList = requests.map(([uid,request]) => `<article class="content-row"><div class="row-icon">✉</div><div class="row-main"><strong>${esc(request.email || "Unknown email")}</strong><p>Requested ${request.requestedAt ? new Date(request.requestedAt).toLocaleString() : "recently"}</p><div class="row-meta"><span class="badge badge-muted">Pending approval</span></div></div><div class="row-actions"><button class="small-action" data-action="approve-admin-request" data-id="${esc(uid)}">Review & approve</button><button class="small-action danger" data-action="reject-admin-request" data-id="${esc(uid)}">Reject</button></div></article>`).join("");
   const rows = Object.entries(adminsData || {});
   const list = rows.map(([uid,admin]) => `<article class="content-row"><div class="row-icon">♙</div><div class="row-main"><strong>${esc(admin.email || "Admin account")}</strong><p>${esc(uid)}</p><div class="row-meta"><span class="badge ${admin.role === "super" ? "badge-green" : "badge-muted"}">${esc(admin.role || "normal")}</span><span class="badge badge-muted">${Object.entries(admin.permissions || {}).filter(([,v])=>v===true).map(([k])=>k).join(", ") || (admin.role === "super" ? "Full access" : "No extra permissions")}</span></div></div><div class="row-actions">${uid === currentUser?.uid ? `<span class="badge badge-green">You</span>` : uid === "-P6EIURxhvKTnOwy-8Ty" ? `<span class="badge badge-muted">Legacy key · migration pending</span>` : `<button class="small-action" data-action="edit-admin" data-id="${esc(uid)}">${admin.role === "super" ? "Manage Super Admin" : "Edit permissions"}</button><button class="small-action danger" data-action="remove-admin" data-id="${esc(uid)}">Revoke access</button>`}</div></article>`).join("");
-  return `<div class="welcome-row"><div><h2>Admin access</h2><p>Approve existing Firebase Authentication accounts and assign dashboard roles.</p></div></div><div class="helper-box"><strong>Important:</strong> create the user's sign-in account in Firebase Authentication first. Then copy its UID into this form. The Realtime Database security rules also check the UID allowlist, so client-side role checks are not the only protection.</div><section class="settings-card"><h3>Add an administrator</h3><form id="admin-form"><div class="split-grid"><div class="field"><label>Firebase Auth UID<input name="uid" required placeholder="Paste the user's exact UID"></label></div><div class="field"><label>Account email<input name="email" type="email" required placeholder="admin@example.com"></label></div></div><div class="field"><label>Role<select name="role"><option value="normal">Normal admin</option><option value="super">Super admin</option></select></label></div><div class="field"><span class="field-label">Permissions for normal admins</span><div class="permission-grid">${[["services","Services"],["serviceCategories","Service categories"],["portfolio","Portfolio"],["portfolioCategories","Portfolio categories"],["faqs","FAQs"],["faqCategories","FAQ categories"],["pages","Pages"],["sections","Page sections"],["process","Process steps"],["features","Why choose us"],["navigation","Navigation"],["socialLinks","Social links"],["media","Media library"],["notifications","Announcements"],["settings","Site settings"],["publishing","Publish website"]].map(([key,label])=>`<label class="field-check"><input type="checkbox" name="permission_${key}"> ${label}</label>`).join("")}</div></div><button class="button button-primary" type="submit">Approve administrator ↗</button></form></section><div class="panel-title"><h3>Approved accounts</h3><span>${rows.length} admin(s)</span></div><div class="content-list">${list || emptyMarkup("No admin records found.","After creating the first super admin in Firebase Console, it will appear here.")}</div>`;
+  return `<div class="welcome-row"><div><h2>Admin access</h2><p>Review access requests, approve administrators and manage their permissions.</p></div></div><div class="helper-box"><strong>How it works:</strong> ask the person to sign in with Google on the Admin Panel and submit an access request. Their Firebase UID is captured automatically. No UID lookup, Cloud Function or paid backend is needed. Only a Super Admin can approve access.</div><section class="settings-card"><h3>Pending access requests <span class="badge badge-muted">${requests.length}</span></h3><div class="content-list">${requestList || emptyMarkup("No pending requests.","New access requests will appear here after someone signs in and submits a request.")}</div></section><div class="panel-title"><h3>Approved administrators</h3><span>${rows.length} admin(s)</span></div><div class="content-list">${list || emptyMarkup("No admin records found.","Your existing Super Admin account should appear here.")}</div>`;
 }
 
 function renderField(field, value) {
@@ -860,6 +907,7 @@ $("editor-form").addEventListener("submit", async (event) => {
     else if (context.kind === "page") await savePage(context);
     else if (context.kind === "section") await saveSection(context);
     else if (context.kind === "admin") await saveAdminPermissions(context);
+    else if (context.kind === "admin-request") await approveAdminRequest(context);
     closeModal();
     notify("Changes saved to Firebase.");
   } catch (error) {
@@ -1081,27 +1129,48 @@ async function deleteNotification(id) {
   if (!confirm("Delete this announcement permanently?")) return;
   await remove(ref(database,`notifications/${id}`));
 }
-async function addAdmin(form) {
-  if (adminProfile?.role !== "super") throw new Error("Only a super admin can manage administrator access.");
-  const data = Object.fromEntries(new FormData(form).entries());
-  const uid = String(data.uid || "").trim();
-  const email = String(data.email || "").trim().toLowerCase();
-  if (!uid || !email) throw new Error("Both Firebase UID and email are required.");
-  const existingProfile = await get(ref(database,`admins/${uid}`));
-  if (existingProfile.exists()) throw new Error("An administrator profile already exists for this UID. Existing records are never overwritten by the Add form.");
-  const existingAllowlist = await get(ref(database,`adminUids/${uid}`));
-  if (existingAllowlist.exists()) throw new Error("This UID is already allowlisted. Inspect its existing profile instead of creating a duplicate.");
-  const role = data.role === "super" ? "super" : "normal";
-  const permissionKeys = ["services","serviceCategories","portfolio","portfolioCategories","faqs","faqCategories","pages","sections","process","features","navigation","socialLinks","media","notifications","settings","publishing"];
-  const permissions = role === "super" ? Object.fromEntries(permissionKeys.map(key=>[key,true])) : Object.fromEntries(permissionKeys.map(key=>[key,!!form.elements[`permission_${key}`]?.checked]));
-  if (uid === currentUser?.uid && role !== "super") throw new Error("You cannot change your own role through this form.");
-  const writes = {};
-  writes[`admins/${uid}`] = {email,role,permissions,createdAt:Date.now()};
-  writes[`adminUids/${uid}`] = true;
-  await update(ref(database),writes);
-  await writeAudit("admin-create","admins",uid,`Approved administrator ${email}`);
-  form.reset(); notify("Administrator approved. They can now sign in with the matching Firebase account.");
+function openAdminRequestEditor(uid) {
+  if (adminProfile?.role !== "super") throw new Error("Only a Super Admin can approve administrator requests.");
+  const request = adminRequestsData?.[uid];
+  if (!request || request.status !== "pending") throw new Error("This access request is no longer pending.");
+  if (adminsData?.[uid]) throw new Error("This account is already an administrator.");
+  const fields = [
+    {key:"role",label:"Role",type:"select",options:[["normal","Normal admin"],["super","Super admin"]],default:"normal"},
+    ...adminPermissionKeys.map(key=>({key:`permission_${key}`,label:`${key} permission`,type:"checkbox",default:false}))
+  ];
+  const values = {role:"normal",...Object.fromEntries(adminPermissionKeys.map(key=>[`permission_${key}`,false]))};
+  openModal(`Approve access · ${request.email || uid}`,renderFields(fields,values),{kind:"admin-request",id:uid});
 }
+async function approveAdminRequest(context) {
+  if (adminProfile?.role !== "super") throw new Error("Only a Super Admin can approve administrator requests.");
+  const request = adminRequestsData?.[context.id];
+  if (!request || request.status !== "pending") throw new Error("This request is no longer pending.");
+  if (adminsData?.[context.id]) throw new Error("This account is already an administrator.");
+  const raw = readFields($("editor-fields"));
+  const role = raw.role === "super" ? "super" : "normal";
+  const superCount = Object.values(adminsData || {}).filter(admin=>admin?.role === "super").length;
+  if (role === "super" && !confirm("Approve this request as a Super Admin? They will receive full access.")) return;
+  const permissions = role === "super"
+    ? Object.fromEntries(adminPermissionKeys.map(key=>[key,true]))
+    : Object.fromEntries(adminPermissionKeys.map(key=>[key,raw[`permission_${key}`]===true]));
+  const writes = {};
+  writes[`admins/${context.id}`] = {email:String(request.email).toLowerCase(),role,permissions,createdAt:Date.now(),approvedBy:currentUser.uid};
+  writes[`adminUids/${context.id}`] = true;
+  writes[`adminRequests/${context.id}`] = null;
+  await update(ref(database),writes);
+  await writeAudit("admin-create","admins",context.id,`Approved administrator request for ${request.email}`);
+  notify(`Administrator approved: ${request.email}`);
+}
+async function rejectAdminRequest(uid) {
+  if (adminProfile?.role !== "super") throw new Error("Only a Super Admin can reject administrator requests.");
+  const request = adminRequestsData?.[uid];
+  if (!request) throw new Error("This request no longer exists.");
+  if (!confirm(`Reject the admin access request from ${request.email || uid}?`)) return;
+  await remove(ref(database,`adminRequests/${uid}`));
+  await writeAudit("admin-request-reject","adminRequests",uid,`Rejected administrator request from ${request.email || uid}`);
+  notify("Administrator request rejected.");
+}
+
 async function removeAdmin(uid) {
   if (adminProfile?.role !== "super" || uid === currentUser?.uid) return;
   if (uid === "-P6EIURxhvKTnOwy-8Ty") throw new Error("The legacy push-key profile is protected until its actual Authentication UID is verified.");
@@ -1219,6 +1288,8 @@ $("content-view").addEventListener("click", async (event) => {
       case "delete-notification": await deleteNotification(id); break;
       case "remove-admin": await removeAdmin(id); break;
       case "edit-admin": openAdminEditor(id); break;
+      case "approve-admin-request": openAdminRequestEditor(id); break;
+      case "reject-admin-request": await rejectAdminRequest(id); break;
       default: break;
     }
   } catch (error) {
@@ -1230,10 +1301,6 @@ $("content-view").addEventListener("submit", async (event) => {
   if (event.target.id === "notification-form") {
     event.preventDefault();
     try { await addNotification(event.target); } catch (error) { notify(error.message,"error"); }
-  }
-  if (event.target.id === "admin-form") {
-    event.preventDefault();
-    try { await addAdmin(event.target); } catch (error) { notify(error.message,"error"); }
   }
   if (event.target.id === "backup-restore-form") {
     event.preventDefault();
