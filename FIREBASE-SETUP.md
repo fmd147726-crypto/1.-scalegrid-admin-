@@ -69,4 +69,4 @@ firebase deploy --only database
 
 Deploy the rules from only one repository; the rules are identical in both. Before deployment, export the live database and verify that the existing Super Admin UID is allowlisted. Do not deploy rules before bootstrap verification.
 
-The `firebase-seed/` directory is included in the Admin Panel repository. Follow its README. Never import a root-level seed over the live database.
+The `firebase-seed/README.md` explains why no database import seed is supplied: the live export was not available for safe comparison. Use the Admin Panel's **Install starter content** action, which fills missing working-content records without overwriting existing records. Never import a generated root-level seed over the live database.
