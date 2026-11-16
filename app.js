@@ -536,8 +536,20 @@ function validateWorkingContent(source) {
 }
 async function publishWebsite() {
   if (!can("publishing")) throw new Error("You do not have publishing permission.");
-  const fresh = await get(ref(database,"siteContent"));
-  const latest = fresh.exists() ? fresh.val() : {};
+  // The database rules intentionally deny reads at /siteContent while granting
+  // permission-gated reads to each collection. Fetch those allowed paths
+  // individually instead of requesting the protected parent node.
+  const publishCollections = [
+    "settings","navigation","serviceCategories","services","portfolioCategories",
+    "portfolio","faqCategories","faqs","pages","process","features","socialLinks","media"
+  ];
+  const snapshots = await Promise.all(
+    publishCollections.map(key => get(ref(database,`siteContent/${key}`)))
+  );
+  const latest = Object.fromEntries(publishCollections.map((key,index) => [
+    key,
+    snapshots[index].exists() ? snapshots[index].val() : {}
+  ]));
   if (!latest.pages?.home) throw new Error("The Home page is missing. Create or restore it before publishing.");
   if (latest.pages.home.enabled === false || ["draft","archived"].includes(latest.pages.home.status)) throw new Error("The Home page cannot be hidden, drafted, or archived.");
   const validationErrors=validateWorkingContent(latest);
