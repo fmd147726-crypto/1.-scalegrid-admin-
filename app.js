@@ -424,6 +424,8 @@ $("google-login").addEventListener("click", async () => {
   catch (error) { $("auth-message").textContent = authError(error); }
 });
 async function claimAdminInvitation(user) {
+  const existingAdmin = await get(ref(database, `admins/${user.uid}`));
+  if (existingAdmin.exists()) { await refreshAdminAuthorization(user); return; }
   if (!user?.email || !user.emailVerified) { $("request-access-status").textContent = "Sign in using the same verified email address invited by the Super Admin."; return; }
   const key = btoa(user.email.trim().toLowerCase()).replace(/\\+/g,"-").replace(/\\//g,"_").replace(/=+$/g,"");
   const invitationRef = ref(database,`adminInvitations/${key}`);
@@ -465,10 +467,6 @@ onAuthStateChanged(auth, (user) => {
 });
 $("logout-button").addEventListener("click", () => signOut(auth));
 $("pending-signout").addEventListener("click", () => signOut(auth));
-$("copy-uid").addEventListener("click", async () => {
-  try { await navigator.clipboard.writeText($("pending-uid").textContent); notify("Firebase UID copied."); }
-  catch { notify("Select and copy the UID manually.", "error"); }
-});
 
 // Navigation / mobile sidebar
 function navigate(next) {
