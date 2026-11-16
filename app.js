@@ -142,6 +142,7 @@ const collectionSchemas = {
     label: "Process step", singular: "step", icon: "⇢", permission: "content", primary: "title", secondary: "description",
     fields: [
       { key:"serviceCategoryId", label:"Service page (optional)", type:"selectCategories", help:"Leave blank to show this step across all service pages." },
+      { key:"serviceCategoryId", label:"Service page (optional)", type:"selectCategories", help:"Leave blank to show this step across all service pages." },
       { key:"title", label:"Step title", type:"text", required:true },
       { key:"description", label:"Description", type:"textarea", required:true },
       { key:"icon", label:"Icon / symbol", type:"text" },
@@ -152,6 +153,7 @@ const collectionSchemas = {
   features: {
     label: "Value point", singular: "value point", icon: "✧", permission: "content", primary: "title", secondary: "description",
     fields: [
+      { key:"serviceCategoryId", label:"Service page (optional)", type:"selectCategories", help:"Leave blank to show this benefit across all service pages." },
       { key:"serviceCategoryId", label:"Service page (optional)", type:"selectCategories", help:"Leave blank to show this benefit across all service pages." },
       { key:"title", label:"Title", type:"text", required:true },
       { key:"description", label:"Description", type:"textarea", required:true },
@@ -1100,7 +1102,7 @@ async function saveSettings() {
   await writeAudit("update","settings","settings","Updated website settings");
   notify("Website settings saved.");
 }
-async async function addNotification(form) {
+async function addNotification(form) {
   if (!can("notifications")) return;
   const data = Object.fromEntries(new FormData(form).entries());
   if (!data.title?.trim() || !data.message?.trim()) throw new Error("A title and message are required.");
