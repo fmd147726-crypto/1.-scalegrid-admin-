@@ -141,6 +141,7 @@ const collectionSchemas = {
   process: {
     label: "Process step", singular: "step", icon: "⇢", permission: "content", primary: "title", secondary: "description",
     fields: [
+      { key:"serviceCategoryId", label:"Service page (optional)", type:"selectCategories", help:"Leave blank to show this step across all service pages." },
       { key:"title", label:"Step title", type:"text", required:true },
       { key:"description", label:"Description", type:"textarea", required:true },
       { key:"icon", label:"Icon / symbol", type:"text" },
@@ -151,6 +152,7 @@ const collectionSchemas = {
   features: {
     label: "Value point", singular: "value point", icon: "✧", permission: "content", primary: "title", secondary: "description",
     fields: [
+      { key:"serviceCategoryId", label:"Service page (optional)", type:"selectCategories", help:"Leave blank to show this benefit across all service pages." },
       { key:"title", label:"Title", type:"text", required:true },
       { key:"description", label:"Description", type:"textarea", required:true },
       { key:"icon", label:"Icon / symbol", type:"text", default:"✧" },
