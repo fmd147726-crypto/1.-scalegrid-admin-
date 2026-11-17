@@ -10,6 +10,7 @@ import { initializeAppCheck, ReCaptchaV3Provider } from "https://www.gstatic.com
 import { firebaseConfig, expectedSiteUrl, appCheckSiteKey } from "./firebase-config.js";
 import { starterContent } from "./starter-content.js";
 import { buildPublicProjection, isPublishable } from "./content-projection.js";
+import { BACKUP_COLLECTIONS, validateScaleGridBackup, buildBackupRestorePatch } from "./backup-utils.js";
 
 const firebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
 if (appCheckSiteKey) initializeAppCheck(firebaseApp,{provider:new ReCaptchaV3Provider(appCheckSiteKey),isTokenAutoRefreshEnabled:true});
@@ -510,10 +511,16 @@ function renderRoute() {
 
 function renderBackups() {
   if (adminProfile?.role !== "super") return permissionDenied("super admin");
-  return `<div class="welcome-row"><div><h2>Protect your website content.</h2><p>Export a timestamped JSON backup of your pages, services, FAQs, portfolio and announcements. You can share the file with ChatGPT to prepare organized updates, then import the approved changes.</p></div><button class="button button-primary" data-action="download-backup">Export backup ↗</button></div>
-  <section class="settings-card"><h3>Restore from backup</h3><p class="view-subtitle">Restore merges selected content records into the current working data. Announcements are restored to their separate notification stream. Administrator identities, UID allowlists, public publication and legacy paths are never changed.</p>
-  <form id="backup-restore-form"><div class="field"><label>Backup JSON file<input type="file" name="backupFile" accept=".json,application/json" required></label></div><div class="field"><span class="field-label">Collections to restore</span><div class="permission-grid">${["settings","navigation","serviceCategories","services","portfolioCategories","portfolio","faqCategories","faqs","pages","process","features","socialLinks","media","notifications"].map(k=>`<label class="field-check"><input type="checkbox" name="restore_${k}" checked> ${esc(k)}</label>`).join("")}</div></div><button class="button button-secondary" type="submit">Validate & merge selected content</button></form></section>
-  <div class="helper-box"><strong>Important:</strong> restore is additive/update-only. It does not delete records that are absent from the backup. Select only the collections you want to update, and publish website content separately after reviewing it.</div>`;
+  return `<div class="welcome-row"><div><h2>Protect your website content.</h2><p>Export a timestamped JSON backup of your website content, or validate and merge a previous backup into the current working data.</p></div><button class="button button-primary" data-action="download-backup">Export backup ↗</button></div>
+  <section class="settings-card"><h3>Restore from backup</h3><p class="view-subtitle">Choose a ScaleGrid JSON backup. The file is checked locally before anything is written. Administrator identities, UID allowlists, audit history, published content and legacy paths are not included in restore.</p>
+  <form id="backup-restore-form">
+    <div class="field"><label>1. Choose backup JSON file<input type="file" name="backupFile" accept=".json,application/json" required></label><small>Maximum file size: 10 MB. The filename alone means selected; the status below confirms whether it is a valid backup.</small></div>
+    <div id="backup-file-status" class="backup-file-status" role="status" aria-live="polite">No backup file selected yet.</div>
+    <div class="backup-restore-action"><button class="button button-primary" id="backup-restore-submit" type="submit" disabled>Validate & merge selected content</button></div>
+    <div class="field"><span class="field-label">2. Choose collections to restore</span><div class="permission-grid">${BACKUP_COLLECTIONS.map(k=>`<label class="field-check"><input type="checkbox" name="restore_${k}" checked> ${esc(k)}</label>`).join("")}</div></div>
+    <p class="backup-restore-note">The restore is additive/update-only: records missing from the backup are not deleted. Website content must be reviewed and published separately.</p>
+  </form></section>
+  <div class="helper-box"><strong>Safety:</strong> the restore updates only selected website-content collections. It never replaces the database root and never changes administrator accounts or permissions.</div>`;
 }
 function renderActivity() {
   if (adminProfile?.role !== "super") return permissionDenied("super admin");
@@ -539,26 +546,46 @@ function downloadBackup() {
   writeAudit("backup-export","backup","content","Exported website content backup");
   notify("Content backup exported.");
 }
+async function previewBackupFile(file) {
+  const status = $("backup-file-status");
+  const submit = $("backup-restore-submit");
+  if (!status || !submit) return;
+  submit.disabled = true;
+  if (!file) { status.textContent = "No backup file selected yet."; status.classList.remove("is-valid","is-error"); return; }
+  status.classList.remove("is-valid","is-error");
+  status.textContent = "Checking selected file…";
+  try {
+    if (file.size > 10 * 1024 * 1024) throw new Error("Backup file exceeds the 10 MB limit.");
+    const parsed = JSON.parse(await file.text());
+    const validation = validateScaleGridBackup(parsed, firebaseConfig.projectId);
+    const available = BACKUP_COLLECTIONS.filter(key => parsed.content[key] && typeof parsed.content[key] === "object" && !Array.isArray(parsed.content[key]));
+    if (!available.length) throw new Error("This backup contains no supported content collections.");
+    status.classList.add("is-valid");
+    status.innerHTML = `<strong>Backup validated.</strong> ${esc(file.name)} · ${(file.size / 1024).toFixed(1)} KB<br>Schema v${validation.schemaVersion} · ${available.length} supported collections · Created ${esc(parsed.createdAt || "date not provided")}`;
+    submit.disabled = false;
+  } catch (error) {
+    status.classList.add("is-error");
+    status.textContent = error.message || "This file could not be validated.";
+  }
+}
 async function restoreBackup(form) {
   if (adminProfile?.role !== "super") throw new Error("Only a super admin can restore backups.");
-  const file=form.elements.backupFile.files?.[0];
+  const file = form.elements.backupFile.files?.[0];
   if (!file) throw new Error("Choose a backup JSON file.");
-  if (file.size > 10*1024*1024) throw new Error("Backup file exceeds the 10 MB limit.");
-  const parsed=JSON.parse(await file.text());
-  if (parsed?.format!=="scalegrid-content-backup" || ![1,2].includes(parsed?.schemaVersion) || parsed?.projectId!==firebaseConfig.projectId || !parsed.content || typeof parsed.content!=="object") throw new Error("This is not a valid ScaleGrid backup for the connected Firebase project.");
-  const keys=["settings","navigation","serviceCategories","services","portfolioCategories","portfolio","faqCategories","faqs","pages","process","features","socialLinks","media","notifications"];
-  const selected=keys.filter(key=>form.elements[`restore_${key}`]?.checked && parsed.content[key] && typeof parsed.content[key]==="object");
-  if (!selected.length) throw new Error("Select at least one valid collection to restore.");
-  if (!confirm(`Merge ${selected.length} selected content collection(s) into the current website data? Existing records absent from the backup will remain unchanged.`)) return;
-  for (const key of selected) {
-    if (key === "pages") await update(ref(database),flattenPatch("siteContent/pages",parsed.content[key]));
-    else if (key === "notifications") await update(ref(database,"notifications"),parsed.content[key]);
-    else await update(ref(database,`siteContent/${key}`),parsed.content[key]);
-  }
+  if (file.size > 10 * 1024 * 1024) throw new Error("Backup file exceeds the 10 MB limit.");
+  let parsed;
+  try { parsed = JSON.parse(await file.text()); }
+  catch { throw new Error("The selected file is not valid JSON. Please choose a valid ScaleGrid backup."); }
+  validateScaleGridBackup(parsed, firebaseConfig.projectId);
+  const selected = BACKUP_COLLECTIONS.filter(key => form.elements[`restore_${key}`]?.checked && parsed.content[key] && typeof parsed.content[key] === "object" && !Array.isArray(parsed.content[key]));
+  if (!selected.length) throw new Error("Select at least one supported collection that exists in this backup.");
+  const patch = buildBackupRestorePatch(parsed.content, selected);
+  if (!Object.keys(patch).length) throw new Error("The selected collections contain no restorable records.");
+  if (!confirm(`Merge ${selected.length} selected collection(s) into the current website data? Existing records absent from the backup will remain unchanged. Administrator accounts and permissions will not be changed.`)) return;
+  await update(ref(database), patch);
   await writeAudit("backup-restore","backup",selected.join(","),`Merged backup collections: ${selected.join(", ")}`);
-  notify(`Restored ${selected.length} content collection(s).`);
+  notify(`Restored ${selected.length} collection(s) successfully. Review the content before publishing.`);
 }
-
 function renderPublishing() {
   if (!can("publishing")) return permissionDenied("publishing");
   const published = publicationMeta || {};
@@ -1339,6 +1366,11 @@ $("content-view").addEventListener("submit", async (event) => {
   if (event.target.id === "backup-restore-form") {
     event.preventDefault();
     try { await restoreBackup(event.target); } catch (error) { notify(error.message || "Backup restore failed.","error"); }
+  }
+});
+$("content-view").addEventListener("change", (event) => {
+  if (event.target.matches('#backup-restore-form input[name="backupFile"]')) {
+    previewBackupFile(event.target.files?.[0]);
   }
 });
 $("content-view").addEventListener("input", (event) => {
