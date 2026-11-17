@@ -29,7 +29,9 @@ export function buildPublicProjection(source) {
       if (!isPublishable(item)) continue;
       if (key === "services" && item.categoryId && !isPublishable(out.serviceCategories?.[item.categoryId])) continue;
       if (key === "portfolio" && item.categoryId && !isPublishable(out.portfolioCategories?.[item.categoryId])) continue;
+      if (key === "portfolio" && item.serviceCategoryId && !isPublishable(out.serviceCategories?.[item.serviceCategoryId])) continue;
       if (key === "faqs" && item.categoryId && !isPublishable(out.faqCategories?.[item.categoryId])) continue;
+      if (key === "faqs" && item.serviceCategoryId && !isPublishable(out.serviceCategories?.[item.serviceCategoryId])) continue;
       active[id] = item;
     }
     out[key] = active;
