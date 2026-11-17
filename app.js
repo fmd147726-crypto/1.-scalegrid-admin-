@@ -9,6 +9,7 @@ import {
 import { initializeAppCheck, ReCaptchaV3Provider } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app-check.js";
 import { firebaseConfig, expectedSiteUrl, appCheckSiteKey } from "./firebase-config.js";
 import { starterContent } from "./starter-content.js";
+import { buildBlankFaqTextRepair } from "./starter-content-utils.js";
 import { buildPublicProjection, isPublishable } from "./content-projection.js";
 import { BACKUP_COLLECTIONS, validateScaleGridBackup, buildBackupRestorePatch } from "./backup-utils.js";
 
@@ -691,7 +692,7 @@ function renderDashboard() {
   const draftCount = ["services","portfolio","faqs","pages"].reduce((n,key)=>n+entries(siteContent[key]).filter(([,item])=>item?.status==="draft").length,0);
   const hiddenCount = ["services","portfolio","faqs","pages"].reduce((n,key)=>n+entries(siteContent[key]).filter(([,item])=>item?.enabled===false).length,0);
   const publishedCount = ["services","portfolio","faqs","pages"].reduce((n,key)=>n+entries(siteContent[key]).filter(([,item])=>isPublishable(item)).length,0);
-  const hasMissingStarter = adminProfile?.role === "super" && Object.keys(fillMissing(siteContent,starterContent)).length > 0;
+  const hasMissingStarter = adminProfile?.role === "super" && (Object.keys(fillMissing(siteContent,starterContent)).length > 0 || Object.keys(buildBlankFaqTextRepair(siteContent.faqs,starterContent.faqs)).length > 0);
   const activeContent = countEnabled(siteContent.services) + countEnabled(siteContent.portfolio) + countEnabled(siteContent.faqs);
   return `<div class="welcome-row"><div><h2>Welcome to your workspace.</h2><p>Manage the content that visitors see on the ScaleGrid website.</p></div><div class="welcome-actions"><button class="button button-secondary" data-action="go" data-route="pages">Manage pages</button><button class="button button-primary" data-action="go" data-route="services">Add a service ↗</button></div></div>
     ${hasMissingStarter ? `<div class="setup-callout"><div class="callout-row"><div><h3>Your website content workspace is ready.</h3><p>Install the editable starter content to populate your website with initial service categories, service descriptions, sample concept projects, FAQs and page sections. This only fills missing data; it does not overwrite existing ScaleGrid data or the previous content paths.</p></div><button class="button button-primary" data-action="install-starter">Install starter content ↗</button></div></div>` : ""}
@@ -1280,8 +1281,9 @@ async function installStarter() {
   if (!confirm("Install the editable ScaleGrid starter content? Existing values will not be overwritten. This will add service categories, services, concept portfolio entries, FAQs, process steps, navigation, site settings and the home page.")) return;
   try {
     const missing = fillMissing(siteContent,starterContent);
+    const faqRepair = buildBlankFaqTextRepair(siteContent.faqs,starterContent.faqs);
     const paths = Object.entries(missing);
-    if (!paths.length) return notify("Starter content is already installed or all values have been customised.");
+    if (!paths.length && !Object.keys(faqRepair).length) return notify("Starter content is already installed or all values have been customised.");
     for (const [key,value] of paths) {
       if (key === "pages") {
         const patch = flattenPatch("siteContent/pages",value);
@@ -1289,6 +1291,10 @@ async function installStarter() {
       } else {
         await update(ref(database,`siteContent/${key}`),value);
       }
+    }
+    if (Object.keys(faqRepair).length) {
+      // Update only blank required FAQ text fields; preserve all other FAQ properties and custom text.
+      await update(ref(database),flattenPatch("siteContent/faqs",faqRepair));
     }
     notify("Starter content installed. You can now edit every item from this dashboard.");
   } catch (error) {
