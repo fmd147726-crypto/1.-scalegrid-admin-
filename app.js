@@ -36,7 +36,7 @@ const safeKey = (value) => text(value).toLowerCase().replace(/[^a-z0-9]+/g,"-").
 const routeNames = {
   dashboard: ["Overview", "Your website at a glance"], pages: ["Pages & sections", "Build and organise your website pages"],
   serviceCategories: ["Service categories", "Create the categories visitors use to explore your services"], services: ["Services", "Manage the services displayed on your website"],
-  portfolioCategories: ["Portfolio categories", "Organise portfolio projects independently"], portfolio: ["Portfolio", "Publish project work and clearly labelled concepts"], media: ["Media library", "Keep a reusable list of public image URLs for your site content"], faqCategories: ["FAQ categories", "Organise questions into independent groups"], faqs: ["FAQs", "Create and organise questions and answers"],
+  portfolioCategories: ["Portfolio categories", "Organise portfolio projects independently"], portfolio: ["Portfolio", "Publish project work and clearly labelled concepts"], media: ["Media library", "Keep a reusable list of public image URLs for your site content"], faqCategories: ["FAQ categories", "Organise questions into independent groups"], faqs: ["FAQs", "Choose whether each question appears on the homepage, relevant service pages, or both"],
   process: ["Process steps", "Explain how a project moves from idea to delivery"], features: ["Why choose us", "Manage the differentiators and value points shown on your website"], socialLinks: ["Social links", "Manage the public social and contact links"],
   navigation: ["Navigation", "Control the links in your website menu"], settings: ["Site settings", "Manage brand details, contact information and SEO"],
   notifications: ["Announcements", "Manage the existing public notification stream"], adminAccess: ["Admin access", "Approve accounts and manage dashboard permissions"], backups: ["Backup & recovery", "Export and safely restore website content"], activity: ["Activity log", "Review administrator actions"], publish: ["Publishing", "Validate and publish the public website projection"], sections: ["Page sections", "Add, edit, reorder or hide individual page sections"]
@@ -133,7 +133,8 @@ const collectionSchemas = {
       { key:"question", label:"Question", type:"text", required:true },
       { key:"answer", label:"Answer", type:"textarea", required:true },
       { key:"categoryId", label:"FAQ category", type:"selectFaqCategories", required:true },
-      { key:"serviceCategoryId", label:"Show on service page", type:"selectCategories" },
+      { key:"serviceCategoryIds", label:"Show on these service pages", type:"multiSelectCategories", help:"Select every service category where this question is relevant. Leave all unchecked to keep it off service pages." },
+      { key:"showOnHome", label:"Also show on the homepage FAQ section", type:"checkbox", default:true },
       { key:"order", label:"Display order", type:"number", default:1 },
       { key:"status", label:"Publishing status", type:"select", options:[["draft","Draft"],["published","Published"],["archived","Archived"]], default:"published" },
       { key:"enabled", label:"Visible on website", type:"checkbox", default:true }
@@ -629,9 +630,10 @@ function validateWorkingContent(source) {
   }
   for (const [id,item] of Object.entries(source.faqs||{})) if (isPublishable(item)) {
     const category = item.categoryId ? source.faqCategories?.[item.categoryId] : null;
-    const serviceCategory = item.serviceCategoryId ? source.serviceCategories?.[item.serviceCategoryId] : null;
-    if (item.serviceCategoryId && !serviceCategory) errors.push(`FAQ ${id}: selected service category does not exist`);
-    if ((category && !isPublishable(category)) || (serviceCategory && !isPublishable(serviceCategory))) continue;
+    const assignedServiceCategories = [...new Set([...(Array.isArray(item.serviceCategoryIds) ? item.serviceCategoryIds : []), ...(item.serviceCategoryId ? [item.serviceCategoryId] : [])])];
+    const serviceCategories = assignedServiceCategories.map(categoryId => source.serviceCategories?.[categoryId]);
+    for (let index = 0; index < assignedServiceCategories.length; index++) if (!serviceCategories[index]) errors.push(`FAQ ${id}: selected service category "${assignedServiceCategories[index]}" does not exist`);
+    if (category && !isPublishable(category)) continue;
     if (!String(item.question||"").trim() || !String(item.answer||"").trim()) errors.push(`FAQ ${id}: question and answer are required`);
   }
   for (const [id,item] of Object.entries(source.navigation||{})) if (isPublishable(item)) {
@@ -728,7 +730,11 @@ function renderCollection(collection) {
     const categorySource = collection === "portfolio" ? "portfolioCategories" : collection === "faqs" ? "faqCategories" : "serviceCategories";
     const category = item?.categoryId ? (siteContent[categorySource]?.[item.categoryId]?.name || siteContent.serviceCategories?.[item.categoryId]?.name) : item?.category;
     const projectType = collection === "portfolio" ? (item.projectType === "client" ? "Client project" : item.projectType === "personal" ? "Independent project" : "Concept project") : "";
-    const meta = [category,projectType].filter(Boolean).map(x => `<span class="badge badge-muted">${esc(x)}</span>`).join("");
+    const faqAudience = collection === "faqs" ? [
+      ...(item?.showOnHome === false ? [] : ["Homepage"]),
+      ...((Array.isArray(item?.serviceCategoryIds) ? item.serviceCategoryIds : item?.serviceCategoryId ? [item.serviceCategoryId] : []).map(id => siteContent.serviceCategories?.[id]?.name || id))
+    ] : [];
+    const meta = [...[category,projectType].filter(Boolean),...faqAudience].map(x => `<span class="badge badge-muted">${esc(x)}</span>`).join("");
     const libraryImage = item?.imageMediaId ? siteContent.media?.[item.imageMediaId]?.url : "";
     const preview = mediaPreviewUrl(collection === "media" ? item?.url : item?.imageUrl || libraryImage || item?.image);
     const rowVisual = preview ? `<img class="row-thumb" src="${esc(preview)}" alt="" loading="lazy">` : `<div class="row-icon">${esc(item?.icon || schema.icon)}</div>`;
@@ -838,6 +844,12 @@ function renderField(field, value) {
     const opts = (field.options || []).map(([v,l]) => `<option value="${esc(v)}" ${String(value ?? field.default ?? "") === String(v) ? "selected" : ""}>${esc(l)}</option>`).join("");
     return `<div class="field"><label for="${id}">${esc(field.label)}<select id="${id}" ${name} ${field.required ? "required" : ""}>${opts}</select></label>${field.help ? `<small>${esc(field.help)}</small>` : ""}</div>`;
   }
+  if (field.type === "multiSelectCategories") {
+    const categories = entries(siteContent.serviceCategories).filter(([,item]) => item && item.enabled !== false);
+    const selected = new Set(Array.isArray(value) ? value : value ? [value] : []);
+    const options = categories.map(([key,item]) => `<label class="field-check"><input type="checkbox" data-field-array="${esc(field.key)}" value="${esc(key)}" ${selected.has(key) ? "checked" : ""}> ${esc(item.name || key)}</label>`).join("");
+    return `<div class="field"><div class="field-label">${esc(field.label)}</div><div class="multi-check-list">${options || `<small>No enabled service categories are available.</small>`}</div>${field.help ? `<small>${esc(field.help)}</small>` : ""}</div>`;
+  }
   if (["selectCategories","selectPortfolioCategories","selectFaqCategories"].includes(field.type)) {
     const source = field.type === "selectPortfolioCategories" ? "portfolioCategories" : field.type === "selectFaqCategories" ? "faqCategories" : "serviceCategories";
     const categories = entries(siteContent[source]).filter(([,item]) => item && item.enabled !== false);
@@ -864,6 +876,11 @@ function readFields(container) {
     else if (input.type === "number") result[key] = Number(input.value || 0);
     else if (input.tagName === "TEXTAREA" && input.dataset.kind === "json") result[key] = input.value;
     else result[key] = input.value.trim();
+  });
+  container.querySelectorAll("[data-field-array]").forEach(input => {
+    const key = input.dataset.fieldArray;
+    result[key] ||= [];
+    if (input.checked) result[key].push(input.value);
   });
   return result;
 }
@@ -892,6 +909,10 @@ function openCollectionEditor(collection, id = null) {
   const existing = id ? siteContent[collection]?.[id] || {} : {};
   const order = existing.order ?? (totalCount(siteContent[collection]) + 1);
   const values = { ...existing, order, enabled: existing.enabled !== false };
+  if (collection === "faqs") {
+    values.serviceCategoryIds = Array.isArray(existing.serviceCategoryIds) ? existing.serviceCategoryIds : existing.serviceCategoryId ? [existing.serviceCategoryId] : [];
+    values.showOnHome = existing.showOnHome !== false;
+  }
   openModal(`${id ? "Edit" : "Add"} ${schema.singular}`, renderFields(schema.fields,values), {kind:"collection",collection,id,fields:schema.fields});
 }
 function openPageEditor(id = null) {
@@ -1000,6 +1021,10 @@ function convertFields(raw, fields) {
     if (["selectCategories","selectPortfolioCategories","selectFaqCategories"].includes(field.type) && value) {
       const source = field.type === "selectPortfolioCategories" ? "portfolioCategories" : field.type === "selectFaqCategories" ? "faqCategories" : "serviceCategories";
       if (!siteContent[source]?.[value] || siteContent[source][value].enabled === false) throw new Error(`Choose a valid ${source === "portfolioCategories" ? "portfolio" : source === "faqCategories" ? "FAQ" : "service"} category first.`);
+    }
+    if (field.type === "multiSelectCategories") {
+      value = [...new Set((Array.isArray(value) ? value : []).map(item => String(item).trim()).filter(Boolean))];
+      for (const categoryId of value) if (!siteContent.serviceCategories?.[categoryId] || siteContent.serviceCategories[categoryId].enabled === false) throw new Error("Choose only enabled service categories for this FAQ.");
     }
     result[field.key] = value;
   }
