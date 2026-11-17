@@ -37,3 +37,25 @@ test("private settings are excluded from public projection", () => {
   assert.equal(result.settings.brandName, "ScaleGrid");
   assert.equal("secretKey" in result.settings, false);
 });
+
+
+test("FAQ projection normalizes multi-service assignments and preserves homepage defaults", () => {
+  const result = buildPublicProjection({
+    serviceCategories: { websites: { name: "Websites" }, apps: { name: "Apps" }, hidden: { name: "Hidden", enabled: false } },
+    faqCategories: { general: { name: "General" } },
+    faqs: {
+      general: { question: "General?", answer: "Yes.", categoryId: "general" },
+      assigned: { question: "Assigned?", answer: "Yes.", categoryId: "general", serviceCategoryIds: ["websites", "apps", "hidden"], showOnHome: true },
+      notHome: { question: "Service only?", answer: "Yes.", categoryId: "general", serviceCategoryIds: ["apps"], showOnHome: false },
+      legacy: { question: "Legacy?", answer: "Yes.", categoryId: "general", serviceCategoryId: "websites" }
+    }
+  });
+  assert.deepEqual(result.faqs.assigned.serviceCategoryIds, ["websites", "apps"]);
+  assert.equal(result.faqs.assigned.showOnHome, true);
+  assert.deepEqual(result.faqs.legacy.serviceCategoryIds, ["websites"]);
+  assert.equal(result.faqs.legacy.showOnHome, true);
+  assert.deepEqual(result.faqs.general.serviceCategoryIds, []);
+  assert.equal(result.faqs.general.showOnHome, true);
+  assert.equal(result.faqs.notHome.showOnHome, false);
+  assert.equal(result.faqs.legacy.serviceCategoryId, undefined);
+});
