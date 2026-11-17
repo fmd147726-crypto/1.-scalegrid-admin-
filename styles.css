@@ -17,3 +17,6 @@
 
 /* Backup and restore workflow */
 .backup-file-status{border:1px dashed var(--line);border-radius:10px;padding:12px 14px;margin:10px 0 13px;color:#9daa96;font-size:11px;line-height:1.7;background:#0a100b}.backup-file-status.is-valid{border-color:rgba(189,255,69,.38);color:#d9edc9}.backup-file-status.is-error{border-color:rgba(255,116,116,.45);color:#ffaaaa}.backup-restore-action{display:flex;justify-content:flex-start;margin:12px 0 20px}.backup-restore-action button:disabled{opacity:.45;cursor:not-allowed}.backup-restore-note{font-size:10px;color:#879481;line-height:1.6;margin:12px 0 0}
+
+/* FAQ multi-service audience selector */
+.multi-check-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:3px 14px;margin:7px 0 8px;padding:8px 12px;background:#0b100c;border:1px solid rgba(255,255,255,.11);border-radius:9px}.multi-check-list .field-check{margin:4px 0}.field-label{color:#cbd4c7;font-size:11px;font-weight:600}@media(max-width:560px){.multi-check-list{grid-template-columns:1fr}}

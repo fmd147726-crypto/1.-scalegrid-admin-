@@ -31,7 +31,13 @@ export function buildPublicProjection(source) {
       if (key === "portfolio" && item.categoryId && !isPublishable(out.portfolioCategories?.[item.categoryId])) continue;
       if (key === "portfolio" && item.serviceCategoryId && !isPublishable(out.serviceCategories?.[item.serviceCategoryId])) continue;
       if (key === "faqs" && item.categoryId && !isPublishable(out.faqCategories?.[item.categoryId])) continue;
-      if (key === "faqs" && item.serviceCategoryId && !isPublishable(out.serviceCategories?.[item.serviceCategoryId])) continue;
+      if (key === "faqs") {
+        const assignedIds = [...new Set([...(Array.isArray(item.serviceCategoryIds) ? item.serviceCategoryIds : []), ...(item.serviceCategoryId ? [item.serviceCategoryId] : [])])];
+        const visibleIds = assignedIds.filter(categoryId => isPublishable(out.serviceCategories?.[categoryId]));
+        active[id] = {...item,serviceCategoryIds:visibleIds,showOnHome:item.showOnHome !== false};
+        delete active[id].serviceCategoryId;
+        continue;
+      }
       active[id] = item;
     }
     out[key] = active;
