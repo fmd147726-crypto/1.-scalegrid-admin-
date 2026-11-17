@@ -14,3 +14,6 @@
 .history-modal-card .editor-fields{max-height:min(72vh,760px);overflow:auto}
 .check-list{padding-left:20px;color:var(--muted,#9aa69d);line-height:1.8}
 @media(max-width:640px){.permission-grid{grid-template-columns:1fr}}
+
+/* Backup and restore workflow */
+.backup-file-status{border:1px dashed var(--line);border-radius:10px;padding:12px 14px;margin:10px 0 13px;color:#9daa96;font-size:11px;line-height:1.7;background:#0a100b}.backup-file-status.is-valid{border-color:rgba(189,255,69,.38);color:#d9edc9}.backup-file-status.is-error{border-color:rgba(255,116,116,.45);color:#ffaaaa}.backup-restore-action{display:flex;justify-content:flex-start;margin:12px 0 20px}.backup-restore-action button:disabled{opacity:.45;cursor:not-allowed}.backup-restore-note{font-size:10px;color:#879481;line-height:1.6;margin:12px 0 0}
