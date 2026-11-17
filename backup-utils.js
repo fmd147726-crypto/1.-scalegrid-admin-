@@ -26,7 +26,7 @@ export function buildBackupRestorePatch(content, selectedCollections) {
     if (value === null || value === undefined) return;
     if (value && typeof value === "object" && !Array.isArray(value)) {
       for (const [key, child] of Object.entries(value)) {
-        if (!key || /[.#$\\[\\]\\/]/.test(key)) {
+        if (!key || [...key].some(character => ".#$[]/".includes(character))) {
           throw new Error(`Backup contains an invalid Firebase key at ${path}.`);
         }
         addLeaves(`${path}/${key}`, child);
