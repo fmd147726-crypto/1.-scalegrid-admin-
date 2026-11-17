@@ -585,14 +585,26 @@ function validateWorkingContent(source) {
     }
   }
   for (const [id,item] of Object.entries(source.services||{})) if (isPublishable(item)) {
+    const category = item.categoryId ? source.serviceCategories?.[item.categoryId] : null;
+    if (item.categoryId && !category) errors.push(`Service ${id}: selected service category does not exist`);
+    if (category && !isPublishable(category)) continue; // An intentionally hidden category also hides its services.
     if (!String(item.title||"").trim() || !String(item.summary||"").trim()) errors.push(`Service ${id}: title and summary are required`);
-    if (item.categoryId && !isPublishable(source.serviceCategories?.[item.categoryId])) errors.push(`Service ${id}: selected service category is unavailable`);
   }
   for (const [id,item] of Object.entries(source.portfolio||{})) if (isPublishable(item)) {
+    const legacyOrPortfolioCategory = item.categoryId
+      ? (source.portfolioCategories?.[item.categoryId] || source.serviceCategories?.[item.categoryId])
+      : null;
+    const serviceCategory = item.serviceCategoryId ? source.serviceCategories?.[item.serviceCategoryId] : null;
+    if (item.categoryId && !legacyOrPortfolioCategory) errors.push(`Portfolio ${id}: selected portfolio category does not exist`);
+    if (item.serviceCategoryId && !serviceCategory) errors.push(`Portfolio ${id}: selected service category does not exist`);
+    if ((legacyOrPortfolioCategory && !isPublishable(legacyOrPortfolioCategory)) || (serviceCategory && !isPublishable(serviceCategory))) continue;
     if (!String(item.title||"").trim() || !String(item.summary||"").trim()) errors.push(`Portfolio ${id}: title and summary are required`);
-    if (item.categoryId && !isPublishable(source.portfolioCategories?.[item.categoryId]) && !isPublishable(source.serviceCategories?.[item.categoryId])) errors.push(`Portfolio ${id}: selected portfolio category is unavailable`);
   }
   for (const [id,item] of Object.entries(source.faqs||{})) if (isPublishable(item)) {
+    const category = item.categoryId ? source.faqCategories?.[item.categoryId] : null;
+    const serviceCategory = item.serviceCategoryId ? source.serviceCategories?.[item.serviceCategoryId] : null;
+    if (item.serviceCategoryId && !serviceCategory) errors.push(`FAQ ${id}: selected service category does not exist`);
+    if ((category && !isPublishable(category)) || (serviceCategory && !isPublishable(serviceCategory))) continue;
     if (!String(item.question||"").trim() || !String(item.answer||"").trim()) errors.push(`FAQ ${id}: question and answer are required`);
   }
   for (const [id,item] of Object.entries(source.navigation||{})) if (isPublishable(item)) {
