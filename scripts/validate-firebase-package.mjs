@@ -16,6 +16,7 @@ if (firebaserc.projects?.default !== "scalegrid-1c506") failures.push(".firebase
 if (firebaseJson.database?.rules !== "database.rules.json") failures.push("firebase.json does not point to database.rules.json.");
 if (rules.rules?.[".read"] !== false || rules.rules?.[".write"] !== false) failures.push("Root Realtime Database read/write must remain denied.");
 if (rules.rules?.publicContent?.[".read"] !== true) failures.push("publicContent must remain publicly readable.");
+if (!rules.rules?.adminInvitations?.["$emailKey"]?.[".read"] || !rules.rules?.adminInvitations?.["$emailKey"]?.[".write"]) failures.push("Admin invitation security rules are missing.");
 if (!rules.rules?.adminUids || !rules.rules?.admins || !rules.rules?.siteContent) failures.push("Required authorization/content paths are missing.");
 
 if (failures.length) {
